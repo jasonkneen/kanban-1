@@ -31,7 +31,16 @@ When closing issues via commit:
 
 ---
 
-- ACP (Agent Client Protocol) is a protocol that lets us interface with CLI agents like codex. When working on anything ACP related, you can use:
-  - @.plan/docs/ACP_docs.md for all of ACP's documentation
-  - @.plan/docs/ACP_SDK_notes.md for a reference to how the ACP SDK is implemented
-  - @.plan/docs/ACP_reference_project.md for notes on ~/Repositories/kanbanana/vscode-acp, a client that implements ACP
+Agent Client Protocol (ACP)
+- ACP is a protocol that lets us interface with CLI agents like codex. When working on anything ACP related, you can use:
+- @.plan/docs/ACP-docs.md for all of ACP's documentation
+- @.plan/docs/ACP-SDK-notes.md for a reference to how the ACP SDK is implemented
+- @.plan/docs/ACP-reference-project.md for notes on ~/Repositories/kanbanana/vscode-acp, a client that implements ACP
+
+Webview UI (Primer)
+- Kanbanana web UI uses Primer as the primary design system: `@primer/react` and `@primer/octicons-react`.
+- Before any web UI implementation or refactor, read `@.plan/docs/primer-react-reference.md`.
+- Prefer Primer components and compound APIs first (`PageLayout`, `PageHeader`, `FormControl`, `ActionList`, etc.) before writing custom HTML/CSS.
+- Do not recreate UI primitives that Primer already provides (buttons, inputs, labels, lists, layout primitives, icons).
+- Keep custom CSS minimal and mostly for app-specific layout glue, not to restyle Primer components.
+- For Octicons, default to no `size` prop and only use named sizes (`small`, `medium`, `large`) when needed.

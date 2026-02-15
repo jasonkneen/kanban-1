@@ -4,6 +4,28 @@
 Kanbanana is a local-first orchestration layer for CLI agents.
 It should let users dispatch many tasks, monitor progress, and review outcomes from one Kanban interface.
 
+## Architecture Baseline
+1. User entrypoint is `npx kanbanana`.
+2. CLI starts one local runtime process that:
+   - serves the web app in browser
+   - exposes local API and event stream
+   - runs ACP orchestration and task lifecycle
+3. Scope resolution:
+   - inside a repo/workspace: use project scope at `<repo>/.kanbanana`
+   - outside a repo/workspace: use global scope at `~/.kanbanana`
+4. Storage model:
+   - `~/.kanbanana` for global config/state/logs
+   - `<repo>/.kanbanana` for project config/state/logs
+5. Repo structure direction:
+   - `web-ui` for webview UI
+   - `packages/cli` for command entrypoint and server bootstrap
+   - `packages/core` for orchestration domain logic
+   - `packages/acp` for ACP adapters/session lifecycle
+   - `packages/store` for persistence and migrations
+   - `packages/protocol` for shared typed API/event contracts
+6. Delivery rule:
+   - each phase must produce a runnable, testable vertical slice on this architecture
+
 ## Phase Strategy
 1. Ship vertical slices that are runnable and testable.
 2. Keep complex features isolated by phase so validation is clear.
@@ -37,4 +59,3 @@ It should let users dispatch many tasks, monitor progress, and review outcomes f
 1. Multi-agent race mode for same task.
 2. Advanced provider-switch automation beyond basic selection.
 3. Deep usage analytics beyond lightweight links and placeholders.
-
