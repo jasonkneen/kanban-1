@@ -83,8 +83,8 @@ export const runtimeBoardCardSchema = z.object({
 	autoReviewMode: runtimeTaskAutoReviewModeSchema.optional(),
 	images: z.array(runtimeTaskImageSchema).optional(),
 	baseRef: z.string(),
-	createdAt: z.number(),
-	updatedAt: z.number(),
+	createdAt: z.number().default(0),
+	updatedAt: z.number().default(0),
 });
 export type RuntimeBoardCard = z.infer<typeof runtimeBoardCardSchema>;
 
