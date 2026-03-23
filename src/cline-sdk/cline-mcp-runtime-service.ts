@@ -180,6 +180,39 @@ function hasAccessToken(tokens: Record<string, unknown> | undefined): boolean {
 	return typeof accessToken === "string" && accessToken.trim().length > 0;
 }
 
+/**
+ * Ensure MCP tool input schemas always include `type: "object"` and at least
+ * one declared property. Without a concrete property, some OpenAI-compatible
+ * streaming providers emit `arguments: ""` (empty string) for no-parameter
+ * tools. The agent framework treats an empty string as falsy and classifies
+ * the tool call as "missing_arguments", crashing the session. Adding a single
+ * optional no-op property forces the model to always send a parseable JSON
+ * argument chunk (at minimum `{}`), which the streaming layer serialises
+ * into a non-empty delta.
+ */
+function normalizeMcpToolInputSchema(raw: unknown): Record<string, unknown> {
+	const schema: Record<string, unknown> =
+		raw && typeof raw === "object" && !Array.isArray(raw)
+			? { ...(raw as Record<string, unknown>) }
+			: {};
+
+	if (!schema.type) {
+		schema.type = "object";
+	}
+
+	const properties = schema.properties as Record<string, unknown> | undefined;
+	if (!properties || Object.keys(properties).length === 0) {
+		schema.properties = {
+			_meta: {
+				type: "object",
+				description: "Reserved. Omit or pass an empty object.",
+			},
+		};
+	}
+
+	return schema;
+}
+
 function toMcpRegistration(server: RuntimeClineMcpServer): SdkMcpServerRegistration {
 	return {
 		name: server.name,
@@ -466,10 +499,7 @@ class RuntimeMcpServerClient implements SdkMcpServerClient {
 			return result.tools.map((tool) => ({
 				name: tool.name,
 				description: tool.description,
-				inputSchema:
-					tool.inputSchema && typeof tool.inputSchema === "object" && !Array.isArray(tool.inputSchema)
-						? (tool.inputSchema as Record<string, unknown>)
-						: {},
+				inputSchema: normalizeMcpToolInputSchema(tool.inputSchema),
 			}));
 		});
 	}

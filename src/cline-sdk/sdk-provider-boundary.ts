@@ -301,6 +301,20 @@ export function createSdkInMemoryMcpManager(options: SdkMcpManagerOptions): SdkM
 	return new managerConstructor(options);
 }
 
+/**
+ * Sanitize MCP tool names so they conform to the Claude API requirement:
+ * `^[a-zA-Z0-9_-]{1,128}$`. Server names often contain dots, slashes, or
+ * other characters (e.g. "github.com/org/repo") that the default
+ * `${serverName}__${toolName}` transform passes through verbatim.
+ */
+export function sanitizeMcpToolName(input: { serverName: string; toolName: string }): string {
+	const raw = `${input.serverName}__${input.toolName}`;
+	return raw.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 128);
+}
+
 export async function createSdkMcpTools(options: SdkCreateMcpToolsOptions): Promise<SdkMcpTool[]> {
-	return await createMcpTools(options);
+	return await createMcpTools({
+		...options,
+		nameTransform: options.nameTransform ?? sanitizeMcpToolName,
+	});
 }
