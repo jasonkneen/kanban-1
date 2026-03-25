@@ -9,6 +9,7 @@ import { notifyError, showAppToast } from "@/components/app-toaster";
 import { CardDetailView } from "@/components/card-detail-view";
 import { ClearTrashDialog } from "@/components/clear-trash-dialog";
 import { CodeBrowserPanel } from "@/components/code-browser/code-browser-panel";
+import { FileSearchDialog } from "@/components/code-browser/file-search-dialog";
 import { AgentTerminalPanel } from "@/components/detail-panels/agent-terminal-panel";
 import { GitHistoryView } from "@/components/git-history-view";
 import { KanbanBoard } from "@/components/kanban-board";
@@ -83,6 +84,8 @@ export default function App(): ReactElement {
 	const [isClearTrashDialogOpen, setIsClearTrashDialogOpen] = useState(false);
 	const [isGitHistoryOpen, setIsGitHistoryOpen] = useState(false);
 	const [isCodeBrowserOpen, setIsCodeBrowserOpen] = useState(false);
+	const [isGlobalFileSearchOpen, setIsGlobalFileSearchOpen] = useState(false);
+	const [codeBrowserPendingFilePath, setCodeBrowserPendingFilePath] = useState<string | null>(null);
 	const [pendingTaskStartAfterEditId, setPendingTaskStartAfterEditId] = useState<string | null>(null);
 	const taskEditorResetRef = useRef<() => void>(() => {});
 	const lastStreamErrorRef = useRef<string | null>(null);
@@ -534,6 +537,19 @@ export default function App(): ReactElement {
 		setIsGitHistoryOpen(false);
 	}, []);
 
+	const handleToggleCodeBrowser = useCallback(() => {
+		if (hasNoProjects) {
+			return;
+		}
+		setIsCodeBrowserOpen((prev) => {
+			if (!prev) {
+				setIsGitHistoryOpen(false);
+				setSelectedTaskId(null);
+			}
+			return !prev;
+		});
+	}, [hasNoProjects]);
+
 	const {
 		handleProgrammaticCardMoveReady,
 		handleCreateDependency,
@@ -586,6 +602,7 @@ export default function App(): ReactElement {
 		handleCreateTasks,
 		handleStartTask,
 		handleStartAllBacklogTasks,
+		setSelectedTaskId,
 	});
 
 	useAppHotkeys({
@@ -602,7 +619,16 @@ export default function App(): ReactElement {
 		handleToggleGitHistory,
 		handleCloseGitHistory,
 		onStartAllTasks: handleStartAllBacklogTasksFromBoard,
+		handleOpenFileSearch: hasNoProjects ? undefined : () => setIsGlobalFileSearchOpen(true),
+		handleToggleCodeBrowser: hasNoProjects ? undefined : handleToggleCodeBrowser,
 	});
+
+	const handleGlobalFileSelect = useCallback((path: string) => {
+		setIsGlobalFileSearchOpen(false);
+		setIsCodeBrowserOpen(true);
+		setIsGitHistoryOpen(false);
+		setCodeBrowserPendingFilePath(path);
+	}, []);
 
 	useEffect(() => {
 		if (!pendingTaskStartAfterEditId) {
@@ -803,7 +829,10 @@ export default function App(): ReactElement {
 							? undefined
 							: () => {
 									setIsCodeBrowserOpen((prev) => {
-										if (!prev) setIsGitHistoryOpen(false);
+										if (!prev) {
+											setIsGitHistoryOpen(false);
+											setSelectedTaskId(null);
+										}
 										return !prev;
 									});
 								}
@@ -854,7 +883,7 @@ export default function App(): ReactElement {
 							<div className="flex flex-1 flex-col min-h-0 min-w-0">
 								<div className="flex flex-1 min-h-0 min-w-0">
 									{isCodeBrowserOpen ? (
-										<CodeBrowserPanel workspaceId={currentProjectId} />
+										<CodeBrowserPanel workspaceId={currentProjectId} externalFilePath={codeBrowserPendingFilePath} />
 									) : isGitHistoryOpen ? (
 										<GitHistoryView
 											workspaceId={currentProjectId}
@@ -1056,6 +1085,12 @@ export default function App(): ReactElement {
 				taskCount={trashTaskCount}
 				onCancel={() => setIsClearTrashDialogOpen(false)}
 				onConfirm={handleConfirmClearTrash}
+			/>
+			<FileSearchDialog
+				isOpen={isGlobalFileSearchOpen}
+				onClose={() => setIsGlobalFileSearchOpen(false)}
+				workspaceId={currentProjectId}
+				onSelectFile={handleGlobalFileSelect}
 			/>
 			<StartupOnboardingDialog
 				open={isStartupOnboardingDialogOpen}

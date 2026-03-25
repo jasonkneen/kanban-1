@@ -78,102 +78,112 @@ function ensureTheme(monaco: Parameters<OnMount>[1]) {
 		base: "vs-dark",
 		inherit: true,
 		rules: [
-			// comment / prolog / doctype → text-tertiary (#6E7681)
 			{ token: "comment", foreground: "6E7681" },
 			{ token: "comment.content", foreground: "6E7681" },
 			{ token: "comment.block", foreground: "6E7681" },
-
-			// keyword / atrule / selector → status-blue (#4C9AFF)
 			{ token: "keyword", foreground: "4C9AFF" },
 			{ token: "keyword.control", foreground: "4C9AFF" },
 			{ token: "keyword.operator", foreground: "8B949E" },
 			{ token: "tag", foreground: "4C9AFF" },
-
-			// string / char / inserted → status-green (#3FB950)
 			{ token: "string", foreground: "3FB950" },
 			{ token: "string.key", foreground: "4C9AFF" },
 			{ token: "attribute.value", foreground: "3FB950" },
-
-			// number / boolean / constant → status-orange (#D29922)
 			{ token: "number", foreground: "D29922" },
 			{ token: "number.float", foreground: "D29922" },
 			{ token: "number.hex", foreground: "D29922" },
 			{ token: "constant", foreground: "D29922" },
-
-			// function / class-name → status-blue (#4C9AFF)
 			{ token: "entity.name.function", foreground: "4C9AFF" },
 			{ token: "support.function", foreground: "4C9AFF" },
 			{ token: "entity.name.type", foreground: "4C9AFF" },
 			{ token: "type", foreground: "4C9AFF" },
 			{ token: "type.identifier", foreground: "4C9AFF" },
-
-			// operator / punctuation / delimiter → text-secondary (#8B949E)
 			{ token: "operator", foreground: "8B949E" },
 			{ token: "delimiter", foreground: "8B949E" },
 			{ token: "delimiter.bracket", foreground: "8B949E" },
 			{ token: "delimiter.parenthesis", foreground: "8B949E" },
 			{ token: "delimiter.square", foreground: "8B949E" },
 			{ token: "delimiter.angle", foreground: "8B949E" },
-
-			// variable → text-primary (#E6EDF3)
 			{ token: "variable", foreground: "E6EDF3" },
 			{ token: "identifier", foreground: "E6EDF3" },
-
-			// attribute → status-blue (#4C9AFF)
 			{ token: "attribute.name", foreground: "4C9AFF" },
-
-			// regexp → status-orange (#D29922)
 			{ token: "regexp", foreground: "D29922" },
 		],
 		colors: {
-			// Surface hierarchy
-			"editor.background": "#24292E", // surface-1
-			"editor.foreground": "#E6EDF3", // text-primary
-
-			// Line numbers
-			"editorLineNumber.foreground": "#6E7681", // text-tertiary
-			"editorLineNumber.activeForeground": "#8B949E", // text-secondary
-
-			// Selection & highlight
+			"editor.background": "#24292E",
+			"editor.foreground": "#E6EDF3",
+			"editorLineNumber.foreground": "#6E7681",
+			"editorLineNumber.activeForeground": "#8B949E",
 			"editor.selectionBackground": "#264F78",
-			"editor.lineHighlightBackground": "#2D3339", // surface-2
-
-			// Cursor
+			"editor.lineHighlightBackground": "#2D3339",
 			"editorCursor.foreground": "#E6EDF3",
-
-			// Indent guides
-			"editorIndentGuide.background": "#30363D", // border
-			"editorIndentGuide.activeBackground": "#444C56", // border-bright
-
-			// Scrollbar
-			"scrollbarSlider.background": "#3E464E80", // surface-4 with alpha
+			"editorIndentGuide.background": "#30363D",
+			"editorIndentGuide.activeBackground": "#444C56",
+			"scrollbarSlider.background": "#3E464E80",
 			"scrollbarSlider.hoverBackground": "#3E464EA0",
 			"scrollbarSlider.activeBackground": "#3E464EC0",
-
-			// Widget / suggest
 			"editorWidget.background": "#24292E",
 			"editorWidget.border": "#30363D",
 			"editorSuggestWidget.background": "#24292E",
 			"editorSuggestWidget.border": "#30363D",
 			"editorSuggestWidget.selectedBackground": "#2D3339",
-
-			// Overview ruler (hidden)
 			"editorOverviewRuler.border": "#00000000",
-
-			// Bracket match
 			"editorBracketMatch.background": "#2D333940",
 			"editorBracketMatch.border": "#444C56",
-
-			// Gutter
 			"editorGutter.background": "#24292E",
-
-			// Minimap
 			"minimap.background": "#1F2428",
 			"minimapSlider.background": "#3E464E40",
 			"minimapSlider.hoverBackground": "#3E464E60",
 			"minimapSlider.activeBackground": "#3E464E80",
 		},
 	});
+}
+
+// ── Git gutter decorations ─────────────────────────────────────
+
+let gutterStylesInjected = false;
+
+function ensureGutterStyles(): void {
+	if (gutterStylesInjected) return;
+	gutterStylesInjected = true;
+	const style = document.createElement("style");
+	style.textContent = `
+		.kb-git-gutter-added { border-left: 3px solid #3FB950 !important; margin-left: 2px; }
+		.kb-git-gutter-modified { border-left: 3px solid #4C9AFF !important; margin-left: 2px; }
+		.kb-git-gutter-deleted { border-left: 3px solid #F85149 !important; margin-left: 2px; }
+	`;
+	document.head.appendChild(style);
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function loadGitGutterDecorations(editor: any, workspaceId: string, filePath: string): Promise<void> {
+	ensureGutterStyles();
+	try {
+		const client = getRuntimeTrpcClient(workspaceId);
+		const result = await client.workspace.getFileGitLineStatus.query({ path: filePath });
+		if (!result.changes || result.changes.length === 0) return;
+
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const decorations: any[] = [];
+		for (const change of result.changes) {
+			if (change.type === "deleted") {
+				const line = Math.max(1, change.startLine);
+				decorations.push({
+					range: { startLineNumber: line, startColumn: 1, endLineNumber: line, endColumn: 1 },
+					options: { isWholeLine: true, linesDecorationsClassName: "kb-git-gutter-deleted" },
+				});
+			} else {
+				const endLine = change.startLine + Math.max(change.lineCount - 1, 0);
+				const className = change.type === "added" ? "kb-git-gutter-added" : "kb-git-gutter-modified";
+				decorations.push({
+					range: { startLineNumber: change.startLine, startColumn: 1, endLineNumber: endLine, endColumn: 1 },
+					options: { isWholeLine: true, linesDecorationsClassName: className },
+				});
+			}
+		}
+		editor.createDecorationsCollection(decorations);
+	} catch {
+		// Non-critical: gutter decoration failures should not affect the editor.
+	}
 }
 
 // ── Types ──────────────────────────────────────────────────────
@@ -272,18 +282,19 @@ export function CodeViewer({
 			ensureTheme(monaco);
 			monaco.editor.setTheme(THEME_NAME);
 
-			// Disable all TypeScript/JavaScript diagnostics — this is a read-mostly
-			// code browser, not an IDE, so module-resolution errors are noise.
 			const noValidation = { noSemanticValidation: true, noSyntaxValidation: true, noSuggestionDiagnostics: true };
 			monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions(noValidation);
 			monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions(noValidation);
 
-			// ⌘S / Ctrl+S → save
 			editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
 				void saveFile();
 			});
+
+			if (workspaceId && filePath) {
+				void loadGitGutterDecorations(editor, workspaceId, filePath);
+			}
 		},
-		[saveFile],
+		[saveFile, workspaceId, filePath],
 	);
 
 	const handleEditorChange = useCallback(

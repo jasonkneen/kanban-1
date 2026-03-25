@@ -18,7 +18,7 @@ import {
 } from "../core/api-validation.js";
 import { saveWorkspaceState, WorkspaceStateConflictError } from "../state/workspace-state.js";
 import type { TerminalSessionManager } from "../terminal/session-manager.js";
-import { listDirectoryEntries, readWorkspaceFile, writeWorkspaceFile } from "../workspace/browse-workspace-files.js";
+import { getFileGitLineStatus, listDirectoryEntries, readWorkspaceFile, writeWorkspaceFile } from "../workspace/browse-workspace-files.js";
 import type { ClineTaskSessionService } from "../cline-sdk/cline-task-session-service.js";
 import {
 	createEmptyWorkspaceChangesResponse,
@@ -345,6 +345,9 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 		},
 		writeFile: async (workspaceScope, input) => {
 			return await writeWorkspaceFile(workspaceScope.workspacePath, input.filePath, input.content);
+		},
+		getFileGitLineStatus: async (workspaceScope, input) => {
+			return await getFileGitLineStatus(workspaceScope.workspacePath, input.filePath);
 		},
 		loadState: async (workspaceScope) => {
 			return await deps.buildWorkspaceStateSnapshot(workspaceScope.workspaceId, workspaceScope.workspacePath);

@@ -1,10 +1,10 @@
-import { Search, Settings, X } from "lucide-react";
+import { Ellipsis, Search, X } from "lucide-react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
-import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import { CodeViewer, type EditorSettings } from "./code-viewer";
+import { FileSearchDialog } from "./file-search-dialog";
 import { FileTypeIcon } from "./file-icons";
 import { FileTree } from "./file-tree";
 
@@ -14,7 +14,7 @@ const MAX_SIDEBAR_WIDTH = 500;
 
 interface TabInfo { path: string; isDirty: boolean; }
 
-const DEFAULT_EDITOR_SETTINGS: EditorSettings = { fontSize: 10, wordWrap: false };
+const DEFAULT_EDITOR_SETTINGS: EditorSettings = { fontSize: 12, wordWrap: false };
 
 function getFileName(path: string): string { return path.slice(path.lastIndexOf("/") + 1) || path; }
 
@@ -40,56 +40,6 @@ function useResizableSidebar(initialWidth: number) {
 	return { width, startDrag };
 }
 
-function FileSearchDialog({ isOpen, onClose, workspaceId, onSelectFile }: { isOpen: boolean; onClose: () => void; workspaceId: string | null; onSelectFile: (path: string) => void; }) {
-	const [query, setQuery] = useState("");
-	const [results, setResults] = useState<{ path: string; name: string }[]>([]);
-	const [selectedIndex, setSelectedIndex] = useState(0);
-	const [isSearching, setIsSearching] = useState(false);
-	const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-	const inputRef = useRef<HTMLInputElement>(null);
-
-	useEffect(() => { if (!isOpen) { setQuery(""); setResults([]); setSelectedIndex(0); } else { setTimeout(() => inputRef.current?.focus(), 50); } }, [isOpen]);
-
-	useEffect(() => {
-		if (!workspaceId || !isOpen) return;
-		if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-		searchTimerRef.current = setTimeout(async () => {
-			setIsSearching(true);
-			try { const client = getRuntimeTrpcClient(workspaceId); const result = await client.workspace.searchFiles.query({ query, limit: 50 }); setResults(result.files.map((f) => ({ path: f.path, name: f.name }))); setSelectedIndex(0); } catch { setResults([]); } finally { setIsSearching(false); }
-		}, 100);
-		return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); };
-	}, [query, workspaceId, isOpen]);
-
-	const handleConfirm = useCallback(() => { const selected = results[selectedIndex]; if (selected) { onSelectFile(selected.path); onClose(); } }, [results, selectedIndex, onSelectFile, onClose]);
-	const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-		if (e.key === "ArrowDown") { e.preventDefault(); setSelectedIndex((prev) => Math.min(prev + 1, results.length - 1)); }
-		else if (e.key === "ArrowUp") { e.preventDefault(); setSelectedIndex((prev) => Math.max(prev - 1, 0)); }
-		else if (e.key === "Enter") { e.preventDefault(); handleConfirm(); }
-		else if (e.key === "Escape") { onClose(); }
-	}, [results.length, handleConfirm, onClose]);
-
-	if (!isOpen) return null;
-
-	return (
-		<div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]" onClick={onClose}>
-			<div className="w-[520px] bg-surface-2 border border-border rounded-lg shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
-				<div className="flex items-center border-b border-border px-3 gap-2">
-					<Search size={14} className="text-text-tertiary shrink-0" />
-					<input ref={inputRef} type="text" className="flex-1 bg-transparent border-0 outline-none text-sm text-text-primary py-2.5 placeholder:text-text-tertiary" placeholder="Search files by name…" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={handleKeyDown} />
-				</div>
-				<div className="max-h-[360px] overflow-y-auto">
-					{results.length > 0 ? results.map((result, index) => (
-						<button key={result.path} type="button" className={`flex flex-col w-full text-left px-3 py-1.5 text-sm cursor-pointer border-0 ${index === selectedIndex ? "bg-accent/15" : "hover:bg-surface-3"}`} onClick={() => { onSelectFile(result.path); onClose(); }}>
-							<span className="flex items-center gap-1.5 text-text-primary"><FileTypeIcon name={result.name} size={14} />{result.name}</span>
-							<span className="text-[11px] text-text-tertiary font-mono ml-5 truncate">{result.path}</span>
-						</button>
-					)) : query && !isSearching ? <div className="p-4 text-center text-text-tertiary text-sm">No files found</div> : !query ? <div className="p-4 text-center text-text-tertiary text-sm">Type to search…</div> : null}
-				</div>
-			</div>
-		</div>
-	);
-}
-
 function EditorSettingsPopover({ settings, onChange }: { settings: EditorSettings; onChange: (s: EditorSettings) => void; }) {
 	const [open, setOpen] = useState(false);
 	const btnRef = useRef<HTMLButtonElement>(null);
@@ -103,7 +53,7 @@ function EditorSettingsPopover({ settings, onChange }: { settings: EditorSetting
 	}, [open]);
 	return (
 		<div className="relative">
-			<button ref={btnRef} type="button" className="p-1 rounded hover:bg-surface-2 text-text-tertiary hover:text-text-secondary" onClick={handleOpen} title="Editor settings"><Settings size={14} /></button>
+			<button ref={btnRef} type="button" className="p-1 rounded hover:bg-surface-2 text-text-tertiary hover:text-text-secondary cursor-pointer" onClick={handleOpen} title="Editor settings"><Ellipsis size={14} /></button>
 			{open && (<>
 				<div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
 				<div className="fixed z-50 bg-surface-2 border border-border rounded-lg shadow-xl p-3 w-[200px]" style={{ top: pos.top, right: pos.right }}>
@@ -140,7 +90,7 @@ function TabBar({ tabs, activeTabPath, onSelectTab, onCloseTab, onOpenSearch, ed
 	);
 }
 
-export function CodeBrowserPanel({ workspaceId }: { workspaceId: string | null }): React.ReactElement {
+export function CodeBrowserPanel({ workspaceId, externalFilePath }: { workspaceId: string | null; externalFilePath?: string | null }): React.ReactElement {
 	const [tabs, setTabs] = useState<TabInfo[]>([]);
 	const [activeTabPath, setActiveTabPath] = useState<string | null>(null);
 	const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -164,20 +114,21 @@ export function CodeBrowserPanel({ workspaceId }: { workspaceId: string | null }
 		setTabs((prev) => prev.map((tab) => (tab.path === path ? { ...tab, isDirty } : tab)));
 	}, []);
 
+	// Open files requested externally (e.g. from the global Cmd+Shift+P search).
 	useEffect(() => {
-		const handler = (e: KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "p") { e.preventDefault(); setIsSearchOpen(true); } };
-		window.addEventListener("keydown", handler);
-		return () => window.removeEventListener("keydown", handler);
-	}, []);
+		if (externalFilePath) {
+			handleSelectFile(externalFilePath);
+		}
+	}, [externalFilePath, handleSelectFile]);
 
 	return (
-		<div className="flex flex-1 min-h-0 min-w-0 bg-surface-0">
-			<div className="flex flex-col border-r border-border bg-surface-0 overflow-hidden shrink-0 relative" style={{ width: sidebarWidth, minWidth: MIN_SIDEBAR_WIDTH, maxWidth: MAX_SIDEBAR_WIDTH }}>
+		<div className="flex flex-1 min-h-0 min-w-0 bg-surface-0 p-2 gap-2">
+			<div className="flex flex-col bg-surface-1 overflow-hidden shrink-0 relative rounded-lg border border-border" style={{ width: sidebarWidth, minWidth: MIN_SIDEBAR_WIDTH, maxWidth: MAX_SIDEBAR_WIDTH }}>
 				<div className="flex items-center px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-text-tertiary border-b border-border shrink-0">Explorer</div>
 				<FileTree workspaceId={workspaceId} selectedFilePath={activeTabPath} onSelectFile={handleSelectFile} />
 				<div onMouseDown={startDrag} className="absolute top-0 right-0 bottom-0 w-1.5 cursor-ew-resize z-10" />
 			</div>
-			<div className="flex flex-1 min-w-0 min-h-0 flex-col">
+			<div className="flex flex-1 min-w-0 min-h-0 flex-col rounded-lg border border-border overflow-hidden">
 				<TabBar tabs={tabs} activeTabPath={activeTabPath} onSelectTab={setActiveTabPath} onCloseTab={handleCloseTab} onOpenSearch={() => setIsSearchOpen(true)} editorSettings={editorSettings} onEditorSettingsChange={setEditorSettings} />
 				<CodeViewer workspaceId={workspaceId} filePath={activeTabPath} onDirtyChange={handleDirtyChange} editorSettings={editorSettings} />
 			</div>

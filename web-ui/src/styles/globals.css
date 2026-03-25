@@ -646,6 +646,23 @@ body.kb-dependency-link-mode {
 	opacity: 1;
 }
 
+/* ── Code browser gutter indicators ── */
+.kb-code-line {
+	line-height: 1.5;
+}
+.kb-code-gutter {
+	border-left: 3px solid transparent;
+}
+.kb-code-gutter-added {
+	border-left: 3px solid var(--color-status-green);
+}
+.kb-code-gutter-modified {
+	border-left: 3px solid var(--color-status-blue);
+}
+.kb-code-gutter-deleted {
+	border-left: 3px solid var(--color-status-red);
+}
+
 /* -- Git history rows -- */
 
 .kb-git-ref-row {

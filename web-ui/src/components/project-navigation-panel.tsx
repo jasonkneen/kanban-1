@@ -1,5 +1,6 @@
 import * as Collapsible from "@radix-ui/react-collapsible";
-import { ChevronDown, ChevronUp, Heart, Plus, Trash2 } from "lucide-react";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { ChevronDown, ChevronUp, Ellipsis, Heart, Plus } from "lucide-react";
 import { type MouseEvent as ReactMouseEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ClineIcon } from "@/components/ui/cline-icon";
@@ -20,35 +21,6 @@ import { Spinner } from "@/components/ui/spinner";
 import type { RuntimeProjectSummary } from "@/runtime/types";
 import { formatPathForDisplay } from "@/utils/path-display";
 import { isMacPlatform, modifierKeyLabel } from "@/utils/platform";
-
-const SIDEBAR_MIN_WIDTH = 200;
-const SIDEBAR_MAX_WIDTH = 600;
-const SIDEBAR_DEFAULT_WIDTH = 280;
-const SIDEBAR_WIDTH_STORAGE_KEY = "kb-sidebar-width";
-
-function loadSidebarWidth(): number {
-	try {
-		const stored = localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY);
-		if (stored) {
-			const parsed = Number(stored);
-			if (Number.isFinite(parsed)) {
-				return Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, parsed));
-			}
-		}
-	} catch {
-		// ignore
-	}
-	return SIDEBAR_DEFAULT_WIDTH;
-}
-
-function saveSidebarWidth(width: number): void {
-	try {
-		localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(width));
-	} catch {
-		// ignore
-	}
-}
-
 interface TaskCountBadge {
 	id: string;
 	title: string;
@@ -372,7 +344,9 @@ const ESSENTIAL_SHORTCUTS = [
 	{ keys: [MOD, "Shift", "S"], label: "Settings (Select Agent)" },
 	{ keys: ["Click", MOD], label: "Hold to link tasks" },
 	{ keys: [MOD, "G"], label: "Toggle git view" },
+	{ keys: [MOD, "Shift", "E"], label: "Toggle code editor" },
 	{ keys: [MOD, "J"], label: "Toggle terminal" },
+	{ keys: [MOD, "Shift", "P"], label: "Search files" },
 ];
 
 const MORE_SHORTCUTS = [
@@ -568,18 +542,37 @@ function ProjectRow({
 				) : null}
 			</div>
 			<div className="kb-project-row-actions flex items-center">
-				<Button
-					variant="ghost"
-					size="sm"
-					icon={isRemovingProject ? <Spinner size={12} /> : <Trash2 size={14} />}
-					disabled={hasAnyProjectRemoval && !isRemovingProject}
-					className={isCurrent ? "text-white hover:bg-white/20 hover:text-white active:bg-white/30" : undefined}
-					onClick={(e) => {
-						e.stopPropagation();
-						onRemove(project.id);
-					}}
-					aria-label="Remove project"
-				/>
+				<DropdownMenu.Root>
+					<DropdownMenu.Trigger asChild>
+						<Button
+							variant="ghost"
+							size="sm"
+							icon={isRemovingProject ? <Spinner size={12} /> : <Ellipsis size={14} />}
+							disabled={hasAnyProjectRemoval && !isRemovingProject}
+							className={isCurrent ? "text-white hover:bg-white/20 hover:text-white active:bg-white/30" : undefined}
+							onClick={(e) => {
+								e.stopPropagation();
+							}}
+							aria-label="Project actions"
+						/>
+					</DropdownMenu.Trigger>
+					<DropdownMenu.Portal>
+						<DropdownMenu.Content
+							side="bottom"
+							align="end"
+							sideOffset={4}
+							className="z-50 min-w-[140px] rounded-md border border-border-bright bg-surface-1 p-1 shadow-lg"
+							onCloseAutoFocus={(event) => event.preventDefault()}
+						>
+							<DropdownMenu.Item
+								className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-[13px] text-status-red cursor-pointer outline-none data-[highlighted]:bg-surface-3"
+								onSelect={() => onRemove(project.id)}
+							>
+								Delete
+							</DropdownMenu.Item>
+						</DropdownMenu.Content>
+					</DropdownMenu.Portal>
+				</DropdownMenu.Root>
 			</div>
 		</div>
 	);

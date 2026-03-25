@@ -8,6 +8,7 @@ import {
 	CircleArrowDown,
 	Code,
 	Command,
+	LayoutDashboard,
 	GitBranch,
 	Plus,
 	Settings,
@@ -335,18 +336,6 @@ export function TopBar({
 						</span>
 					</div>
 				) : null}
-				{!hideProjectDependentActions && onToggleCodeBrowser ? (
-					<Tooltip side="bottom" content="Toggle code browser">
-						<Button
-							variant={isCodeBrowserOpen ? "primary" : "ghost"}
-							size="sm"
-							icon={<Code size={16} />}
-							onClick={onToggleCodeBrowser}
-							aria-label={isCodeBrowserOpen ? "Close code browsers" : "Open code browsers"}
-							className={isCodeBrowserOpen ? "ring-1 ring-accent ml-3" : "ml-3"}
-						/>
-					</Tooltip>
-				) : null}
 				{displayWorkspacePath && !isWorkspacePathLoading ? (
 					<div className="ml-1 shrink-0">
 						<OpenWorkspaceButton
@@ -451,6 +440,18 @@ export function TopBar({
 						</RadixPopover.Root>
 					</div>
 				) : null}
+				{!hideProjectDependentActions && onToggleCodeBrowser ? (
+					<Tooltip side="bottom" content={isCodeBrowserOpen ? "Back to board" : "Open code editor"}>
+						<Button
+							variant="ghost"
+							size="sm"
+							icon={isCodeBrowserOpen ? <LayoutDashboard size={16} /> : <Code size={16} />}
+							onClick={onToggleCodeBrowser}
+							aria-label={isCodeBrowserOpen ? "Back to board" : "Open code editor"}
+							className="ml-2"
+						/>
+					</Tooltip>
+				) : null}
 				{onToggleTerminal ? (
 					<Tooltip
 						side="bottom"
@@ -472,7 +473,6 @@ export function TopBar({
 							onClick={onToggleTerminal}
 							disabled={Boolean(isTerminalLoading)}
 							aria-label={isTerminalOpen ? "Close terminal" : "Open terminal"}
-							className="ml-2"
 						/>
 					</Tooltip>
 				) : null}

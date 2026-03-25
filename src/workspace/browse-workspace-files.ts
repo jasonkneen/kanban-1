@@ -1,5 +1,7 @@
+import { execFile } from "node:child_process";
 import { readFile as fsReadFile, writeFile as fsWriteFile, readdir, stat } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
+import { createGitProcessEnv } from "../core/git-process-env.js";
 
 const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB
 
@@ -177,5 +179,80 @@ export async function writeWorkspaceFile(
 		return { ok: true };
 	} catch (err) {
 		return { ok: false, error: err instanceof Error ? err.message : String(err) };
+	}
+}
+
+// ── Git gutter line status ─────────────────────────────────────
+
+export type GitLineChangeType = "added" | "modified" | "deleted";
+
+export interface GitLineChange {
+	type: GitLineChangeType;
+	/** 1-based start line in the working copy. For deleted lines this is the line after which deletion occurred. */
+	startLine: number;
+	/** Number of lines affected (0 for pure deletions). */
+	lineCount: number;
+}
+
+export interface RuntimeFileGitLineStatusResponse {
+	path: string;
+	changes: GitLineChange[];
+}
+
+function runGitDiff(cwd: string, filePath: string): Promise<string> {
+	return new Promise((resolve, reject) => {
+		execFile(
+			"git",
+			["diff", "--unified=0", "--no-color", "HEAD", "--", filePath],
+			{ cwd, env: createGitProcessEnv(), maxBuffer: 1024 * 1024 },
+			(error, stdout) => {
+				if (error && (error as NodeJS.ErrnoException).code === "ENOENT") {
+					reject(new Error("git is not available"));
+					return;
+				}
+				// git diff exits with 1 when there are differences — that's fine
+				resolve(stdout);
+			},
+		);
+	});
+}
+
+const HUNK_HEADER_REGEX = /^@@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+@@/;
+
+function parseGitDiffHunks(diffOutput: string): GitLineChange[] {
+	const changes: GitLineChange[] = [];
+	for (const line of diffOutput.split("\n")) {
+		const match = HUNK_HEADER_REGEX.exec(line);
+		if (!match) {
+			continue;
+		}
+		const oldCount = match[2] !== undefined ? Number.parseInt(match[2], 10) : 1;
+		const newStart = Number.parseInt(match[3]!, 10);
+		const newCount = match[4] !== undefined ? Number.parseInt(match[4], 10) : 1;
+
+		if (oldCount === 0 && newCount > 0) {
+			// Pure addition
+			changes.push({ type: "added", startLine: newStart, lineCount: newCount });
+		} else if (newCount === 0 && oldCount > 0) {
+			// Pure deletion — mark the line after which content was removed
+			changes.push({ type: "deleted", startLine: newStart, lineCount: 0 });
+		} else {
+			// Modification (lines replaced)
+			changes.push({ type: "modified", startLine: newStart, lineCount: newCount });
+		}
+	}
+	return changes;
+}
+
+export async function getFileGitLineStatus(
+	cwd: string,
+	filePath: string,
+): Promise<RuntimeFileGitLineStatusResponse> {
+	try {
+		const diffOutput = await runGitDiff(cwd, filePath);
+		const changes = parseGitDiffHunks(diffOutput);
+		return { path: filePath, changes };
+	} catch {
+		return { path: filePath, changes: [] };
 	}
 }

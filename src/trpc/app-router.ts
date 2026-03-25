@@ -265,6 +265,10 @@ export interface RuntimeTrpcContext {
 			scope: RuntimeTrpcWorkspaceScope,
 			input: { filePath: string; content: string },
 		) => Promise<{ ok: boolean; error?: string }>;
+		getFileGitLineStatus: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: { filePath: string },
+		) => Promise<{ path: string; changes: { type: "added" | "modified" | "deleted"; startLine: number; lineCount: number }[] }>;
 		loadState: (scope: RuntimeTrpcWorkspaceScope) => Promise<RuntimeWorkspaceStateResponse>;
 		notifyStateUpdated: (scope: RuntimeTrpcWorkspaceScope) => Promise<RuntimeWorkspaceStateNotifyResponse>;
 		saveState: (
@@ -532,6 +536,11 @@ export const runtimeAppRouter = t.router({
 					filePath: input.path,
 					content: input.content,
 				});
+			}),
+		getFileGitLineStatus: workspaceProcedure
+			.input(z.object({ path: z.string() }))
+			.query(async ({ ctx, input }) => {
+				return await ctx.workspaceApi.getFileGitLineStatus(ctx.workspaceScope, { filePath: input.path });
 			}),
 		getState: workspaceProcedure.output(runtimeWorkspaceStateResponseSchema).query(async ({ ctx }) => {
 			return await ctx.workspaceApi.loadState(ctx.workspaceScope);
