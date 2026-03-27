@@ -424,7 +424,9 @@ async function createOauthProviderContext(input: {
 
 class RuntimeMcpServerClient implements SdkMcpServerClient {
 	private client: Client | null = null;
+	// biome-ignore lint/correctness/noUnusedPrivateClassMembers: assigned for cleanup in disconnect()
 	private transport: SdkTransport | null = null;
+
 
 	constructor(
 		private readonly server: RuntimeClineMcpServer,
