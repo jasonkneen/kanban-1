@@ -6,7 +6,7 @@ import { useHotkeys } from "react-hotkeys-hook";
 import { BranchSelectDropdown, type BranchSelectOption } from "@/components/branch-select-dropdown";
 import { TaskPromptComposer } from "@/components/task-prompt-composer";
 import { Button } from "@/components/ui/button";
-import type { TaskAutoReviewMode, TaskImage } from "@/types";
+import type { TaskAutoReviewMode, TaskImage, TaskSchedule } from "@/types";
 import { pasteShortcutLabel } from "@/utils/platform";
 import { useDocumentEvent, useMeasure } from "@/utils/react-use";
 
@@ -55,6 +55,8 @@ export function TaskInlineCreateCard({
 	onAutoReviewEnabledChange,
 	autoReviewMode,
 	onAutoReviewModeChange,
+	schedule,
+	onScheduleChange,
 	startInPlanModeDisabled = false,
 	workspaceId,
 	branchRef,
@@ -77,6 +79,8 @@ export function TaskInlineCreateCard({
 	onAutoReviewEnabledChange: (value: boolean) => void;
 	autoReviewMode: TaskAutoReviewMode;
 	onAutoReviewModeChange: (value: TaskAutoReviewMode) => void;
+	schedule?: TaskSchedule;
+	onScheduleChange?: Dispatch<SetStateAction<TaskSchedule | undefined>>;
 	startInPlanModeDisabled?: boolean;
 	workspaceId: string | null;
 	branchRef: string;

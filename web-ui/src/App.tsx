@@ -301,6 +301,8 @@ export default function App(): ReactElement {
 		editTaskAutoReviewMode,
 		setEditTaskAutoReviewMode,
 		isEditTaskStartInPlanModeDisabled,
+		editTaskSchedule,
+		setEditTaskSchedule,
 		editTaskBranchRef,
 		setEditTaskBranchRef,
 		handleOpenCreateTask,
@@ -731,6 +733,8 @@ export default function App(): ReactElement {
 			onAutoReviewEnabledChange={setEditTaskAutoReviewEnabled}
 			autoReviewMode={editTaskAutoReviewMode}
 			onAutoReviewModeChange={setEditTaskAutoReviewMode}
+			schedule={editTaskSchedule}
+			onScheduleChange={setEditTaskSchedule}
 			workspaceId={currentProjectId}
 			branchRef={editTaskBranchRef}
 			branchOptions={createTaskBranchOptions}
