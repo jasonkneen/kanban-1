@@ -1208,7 +1208,7 @@ Add an "Automations" entry to the top navigation bar, alongside the existing boa
 - [x] E.6 — InstanceRow + InstancesTab (integrated in automations-panel.tsx)
 - [x] E.7 — Instance detail (status, scan-now, tripwire badge — integrated in automations-panel.tsx)
 - [x] E.8 — FindingRow (expand/collapse) + FindingsTab (integrated in automations-panel.tsx)
-- [ ] E.9 — Add automation provenance badge + evidence section to board cards and card detail view (deferred to next iteration — board card schema already has `createdByAutomation` / `automationFindingFingerprint` fields; UI badge pending)
+- [x] E.9 — Add automation provenance badge + evidence section to board cards and card detail view — `Bot` icon badge with tooltip in `board-card.tsx`; `AutomationEvidenceBanner` collapsible section in `card-detail-view.tsx`
 - [x] E.10 — Add Bot icon toggle button to top navigation bar
 
 ---
