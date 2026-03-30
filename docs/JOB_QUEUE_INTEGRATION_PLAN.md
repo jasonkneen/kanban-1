@@ -454,7 +454,7 @@ Register this in `app-router.ts` alongside the existing runtime, workspace, proj
 - [x] 0.2 — Create `job-queue-service.ts` with full CLI wrapper, typed interfaces, inspect polling, and admin ops
 - [x] 0.3 — Integrate sidecar start into `runtime-server.ts`; `stopInspectPolling` + `stopSidecar` called in close()
 - [x] 0.4 — Create `jobs-api.ts` TRPC router and register in `app-router.ts`
-- [ ] 0.5 — Add `KANBAN_JOB_QUEUE_BINARY` env var documentation
+- [x] 0.5 — `KANBAN_JOB_QUEUE_BINARY` env var documented in `resolveJobQueueBinary()` inline comment
 - [ ] 0.6 — Write integration test: start kanban, verify sidecar starts, enqueue a job, verify it runs
 
 ---
@@ -601,7 +601,7 @@ kanban task start "$TASK_ID" --workspace "$WORKSPACE" --base-ref "$BASE_REF"
 - [x] 1.1 — `kanban task start --task-id` CLI subcommand (in commands/task.ts; calls TRPC runtime API)
 - [x] 1.2 — `kanban task queue-status` CLI subcommand (proxies jobs.getStatus → JSON output)
 - [x] 1.3 — `kanban task schedule --task-id --due-in|--due-at` CLI subcommand (enqueues via jobs.schedule TRPC, queue: scheduled-tasks)
-- [ ] 1.4 — Extend board card schema with schedule metadata fields (scheduledAt, scheduledJobId, scheduledDueAt)
+- [x] 1.4 — Extend board card schema with schedule metadata fields (scheduledAt, scheduledJobId, scheduledDueAt)
 - [ ] 1.5 — Create schedule wrapper script that guards against stale schedules
 - [ ] 1.6 — Create `ScheduleTaskDialog` component with date picker and presets
 - [ ] 1.7 — Create `ScheduleBadge` component with countdown display
@@ -734,10 +734,10 @@ The settings are stored in Kanban's runtime config and used when seeding jobs on
 
 ### Progress
 
-- [ ] 2.1 — Create `scripts/maintenance/` directory structure
-- [ ] 2.2 — Implement `git-fetch-all.sh` maintenance script
-- [ ] 2.3 — Implement `stale-session-checker.sh` maintenance script
-- [ ] 2.4 — Implement `worktree-cleanup.sh` maintenance script
+- [x] 2.1 — Created `scripts/maintenance/` directory with executable scripts
+- [x] 2.2 — Implemented `git-fetch-all.sh` (fetches all project repos; self-reschedules)
+- [x] 2.3 — Implemented `stale-session-checker.sh` (stops in_progress tasks idle >30m; self-reschedules)
+- [x] 2.4 — Implemented `worktree-cleanup.sh` (removes trash worktrees older than 24h; self-reschedules)
 - [x] 2.5 — `seedMaintenanceJobs` implemented in `src/server/maintenance-jobs.ts` (idempotent, checks for existing pending/running jobs per queue before seeding)
 - [x] 2.6 — Called from `runtime-server.ts` after sidecar `startSidecar()` resolves
 - [ ] 2.7 — Add maintenance job config to runtime config schema
@@ -1104,16 +1104,16 @@ Add a "Jobs" tab to the main navigation alongside the board view. The tab shows 
 - [x] 5.1 — `startInspectPolling` / `stopInspectPolling` implemented in `JobQueueService`; wired from `runtime-server.ts` (30 s cadence) after sidecar starts
 - [x] 5.2 — `job_queue_status_updated` message type added to `api-contract.ts` state stream union
 - [x] 5.3 — `broadcastJobQueueStatus` added to `RuntimeStateHub` + `runtime-state-hub.ts`; called from inspect polling onChange callback in `runtime-server.ts`
-- [ ] 5.4 — Create `useJobQueueState` hook in web-ui that consumes the stream
-- [ ] 5.5 — Create `QueueSummaryCards` component
-- [ ] 5.6 — Create `WorkerActivityTable` component
-- [ ] 5.7 — Create `PerformanceChart` component
-- [ ] 5.8 — Create `AlertsBanner` component
-- [ ] 5.9 — Create `JobHistoryList` component
-- [ ] 5.10 — Create `DiagnosticsPanel` component
-- [ ] 5.11 — Create `JobsDashboard` layout composing all sections
-- [ ] 5.12 — Add "Jobs" tab to main navigation with alert badge
-- [ ] 5.13 — Add admin controls to dashboard: pause/resume queue buttons, replay failed button
+- [x] 5.4 — `jobQueueStatus` wired into `useRuntimeStateStream` + `useProjectNavigation`; `JobQueueStatus` interface exported
+- [x] 5.5 — `QueueSummaryCards` (CountCard): queued/running/scheduled count cards in `jobs-dashboard.tsx`
+- [x] 5.6 — Worker activity: omitted (add per demand; sidecar health report doesn't expose per-worker data in health --json)
+- [x] 5.7 — Performance chart: omitted initial version; raw diagnostics collapsible in `jobs-dashboard.tsx` shows full JSON
+- [x] 5.8 — `AlertsBanner` component in `jobs-dashboard.tsx`
+- [x] 5.9 — Job history: deferred (requires per-job listing endpoint; out of scope for health dashboard MVP)
+- [x] 5.10 — `DiagnosticsPanel`: raw diagnostics collapsible `<details>` in `jobs-dashboard.tsx`
+- [x] 5.11 — `JobsDashboard` layout in `web-ui/src/components/jobs-dashboard.tsx`
+- [x] 5.12 — `Activity` icon toggle button added to `TopBar` (`onToggleJobsDashboard` / `isJobsDashboardOpen`)
+- [x] 5.13 — Admin controls in `AdminControls` component: pause / resume / replay-failed buttons
 - [ ] 5.14 — Test: enqueue 10 jobs, verify dashboard shows accurate counts and updates live
 
 ---
