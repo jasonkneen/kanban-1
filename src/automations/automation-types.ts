@@ -348,6 +348,7 @@ export const automationAuditEventSchema = z.object({
 		"remediation_resolved",
 		"remediation_abandoned",
 		"tripwire_triggered",
+		"instance_created",
 		"instance_enabled",
 		"instance_disabled",
 		"instance_deleted",
