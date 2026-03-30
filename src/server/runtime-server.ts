@@ -90,10 +90,24 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 
 	// Start sidecar if the binary is available — failure is non-fatal.
 	if (jobQueueService.isAvailable()) {
-		jobQueueService.startSidecar().catch((err: unknown) => {
-			const msg = err instanceof Error ? err.message : String(err);
-			deps.warn(`[job-queue] sidecar failed to start: ${msg}`);
-		});
+		jobQueueService
+			.startSidecar()
+			.then(async () => {
+				// Seed periodic maintenance jobs after the sidecar is ready.
+				const { seedMaintenanceJobs } = await import("./maintenance-jobs");
+				await seedMaintenanceJobs(jobQueueService);
+				// Wire inspect-snapshot polling → WebSocket health broadcast (30 s cadence).
+				jobQueueService.startInspectPolling(30_000, (snapshot) => {
+					deps.runtimeStateHub.broadcastJobQueueStatus(
+						jobQueueService.isSidecarRunning(),
+						snapshot as unknown as Record<string, unknown>,
+					);
+				});
+			})
+			.catch((err: unknown) => {
+				const msg = err instanceof Error ? err.message : String(err);
+				deps.warn(`[job-queue] sidecar failed to start: ${msg}`);
+			});
 	}
 
 	const webUiDir = getWebUiDir();
@@ -340,6 +354,9 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 			await clineWatcherRegistry.close();
 			await deps.runtimeStateHub.close();
 			await terminalWebSocketBridge.close();
+			// Stop inspect polling before stopping the sidecar so no background
+			// calls race with the shutdown.
+			jobQueueService.stopInspectPolling();
 			// Stop the job queue sidecar before closing the HTTP server so that
 			// any in-flight jobs have a chance to complete.
 			await jobQueueService.stopSidecar().catch(() => {

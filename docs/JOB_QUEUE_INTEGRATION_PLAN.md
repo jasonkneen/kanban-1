@@ -450,10 +450,10 @@ Register this in `app-router.ts` alongside the existing runtime, workspace, proj
 
 ### Progress
 
-- [ ] 0.1 — Create `job-queue-paths.ts` with data dir, DB URL, and binary resolution
-- [ ] 0.2 — Create `job-queue-service.ts` with full CLI wrapper and typed interfaces
-- [ ] 0.3 — Integrate sidecar start into `runtime-server.ts` and stop into `shutdown-coordinator.ts`
-- [ ] 0.4 — Create `jobs-api.ts` TRPC router and register in `app-router.ts`
+- [x] 0.1 — Create `job-queue-paths.ts` with data dir, DB URL, and binary resolution
+- [x] 0.2 — Create `job-queue-service.ts` with full CLI wrapper, typed interfaces, inspect polling, and admin ops
+- [x] 0.3 — Integrate sidecar start into `runtime-server.ts`; `stopInspectPolling` + `stopSidecar` called in close()
+- [x] 0.4 — Create `jobs-api.ts` TRPC router and register in `app-router.ts`
 - [ ] 0.5 — Add `KANBAN_JOB_QUEUE_BINARY` env var documentation
 - [ ] 0.6 — Write integration test: start kanban, verify sidecar starts, enqueue a job, verify it runs
 
@@ -598,10 +598,10 @@ kanban task start "$TASK_ID" --workspace "$WORKSPACE" --base-ref "$BASE_REF"
 
 ### Progress
 
-- [ ] 1.1 — Add `kanban task start <taskId>` CLI subcommand
-- [ ] 1.2 — Add `kanban task status <taskId>` CLI subcommand (returns card column + state as JSON)
-- [ ] 1.3 — Add `scheduleTask` to runtime TRPC API
-- [ ] 1.4 — Extend board card schema with schedule metadata fields
+- [x] 1.1 — `kanban task start --task-id` CLI subcommand (in commands/task.ts; calls TRPC runtime API)
+- [x] 1.2 — `kanban task queue-status` CLI subcommand (proxies jobs.getStatus → JSON output)
+- [x] 1.3 — `kanban task schedule --task-id --due-in|--due-at` CLI subcommand (enqueues via jobs.schedule TRPC, queue: scheduled-tasks)
+- [ ] 1.4 — Extend board card schema with schedule metadata fields (scheduledAt, scheduledJobId, scheduledDueAt)
 - [ ] 1.5 — Create schedule wrapper script that guards against stale schedules
 - [ ] 1.6 — Create `ScheduleTaskDialog` component with date picker and presets
 - [ ] 1.7 — Create `ScheduleBadge` component with countdown display
@@ -738,8 +738,8 @@ The settings are stored in Kanban's runtime config and used when seeding jobs on
 - [ ] 2.2 — Implement `git-fetch-all.sh` maintenance script
 - [ ] 2.3 — Implement `stale-session-checker.sh` maintenance script
 - [ ] 2.4 — Implement `worktree-cleanup.sh` maintenance script
-- [ ] 2.5 — Add `seedMaintenanceJobs` to `JobQueueService`
-- [ ] 2.6 — Call `seedMaintenanceJobs` during sidecar startup
+- [x] 2.5 — `seedMaintenanceJobs` implemented in `src/server/maintenance-jobs.ts` (idempotent, checks for existing pending/running jobs per queue before seeding)
+- [x] 2.6 — Called from `runtime-server.ts` after sidecar `startSidecar()` resolves
 - [ ] 2.7 — Add maintenance job config to runtime config schema
 - [ ] 2.8 — Create `MaintenanceSettings` component in settings UI
 - [ ] 2.9 — Test: verify maintenance jobs self-reschedule correctly across 3 iterations
@@ -1101,9 +1101,9 @@ Add a "Jobs" tab to the main navigation alongside the board view. The tab shows 
 
 ### Progress
 
-- [ ] 5.1 — Add inspect polling with cached diff detection to `JobQueueService`
-- [ ] 5.2 — Add `job_queue_updated` message type to state stream schema
-- [ ] 5.3 — Broadcast inspect changes from `runtime-state-hub.ts`
+- [x] 5.1 — `startInspectPolling` / `stopInspectPolling` implemented in `JobQueueService`; wired from `runtime-server.ts` (30 s cadence) after sidecar starts
+- [x] 5.2 — `job_queue_status_updated` message type added to `api-contract.ts` state stream union
+- [x] 5.3 — `broadcastJobQueueStatus` added to `RuntimeStateHub` + `runtime-state-hub.ts`; called from inspect polling onChange callback in `runtime-server.ts`
 - [ ] 5.4 — Create `useJobQueueState` hook in web-ui that consumes the stream
 - [ ] 5.5 — Create `QueueSummaryCards` component
 - [ ] 5.6 — Create `WorkerActivityTable` component

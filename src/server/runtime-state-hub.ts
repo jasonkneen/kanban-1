@@ -57,6 +57,8 @@ export interface RuntimeStateHub {
 	broadcastClineMcpAuthStatusesUpdated: (statuses: RuntimeClineMcpServerAuthStatus[]) => void;
 	bumpClineSessionContextVersion: () => void;
 	broadcastTaskReadyForReview: (workspaceId: string, taskId: string) => void;
+	/** Broadcast a job_queue_status_updated message to all connected clients. */
+	broadcastJobQueueStatus: (sidecarRunning: boolean, health: Record<string, unknown> | null) => void;
 	close: () => Promise<void>;
 }
 
@@ -338,6 +340,20 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 		}
 	};
 
+	const broadcastJobQueueStatus = (sidecarRunning: boolean, health: Record<string, unknown> | null) => {
+		if (runtimeStateClients.size === 0) {
+			return;
+		}
+		const payload = {
+			type: "job_queue_status_updated" as const,
+			sidecarRunning,
+			health,
+		};
+		for (const client of runtimeStateClients) {
+			sendRuntimeStateMessage(client, payload);
+		}
+	};
+
 	runtimeStateWebSocketServer.on("connection", async (client: WebSocket, context: unknown) => {
 		client.on("close", () => {
 			cleanupRuntimeStateClient(client);
@@ -552,6 +568,7 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 		broadcastClineMcpAuthStatusesUpdated,
 		bumpClineSessionContextVersion,
 		broadcastTaskReadyForReview,
+		broadcastJobQueueStatus,
 		close: async () => {
 			for (const timer of taskSessionBroadcastTimersByWorkspaceId.values()) {
 				clearTimeout(timer);

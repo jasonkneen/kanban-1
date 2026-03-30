@@ -390,6 +390,13 @@ export const runtimeStateStreamErrorMessageSchema = z.object({
 });
 export type RuntimeStateStreamErrorMessage = z.infer<typeof runtimeStateStreamErrorMessageSchema>;
 
+export const runtimeStateStreamJobQueueStatusMessageSchema = z.object({
+	type: z.literal("job_queue_status_updated"),
+	sidecarRunning: z.boolean(),
+	health: z.record(z.string(), z.unknown()).nullable(),
+});
+export type RuntimeStateStreamJobQueueStatusMessage = z.infer<typeof runtimeStateStreamJobQueueStatusMessageSchema>;
+
 export const runtimeStateStreamMessageSchema = z.discriminatedUnion("type", [
 	runtimeStateStreamSnapshotMessageSchema,
 	runtimeStateStreamWorkspaceStateMessageSchema,
@@ -401,6 +408,7 @@ export const runtimeStateStreamMessageSchema = z.discriminatedUnion("type", [
 	runtimeStateStreamTaskChatClearedMessageSchema,
 	runtimeStateStreamMcpAuthUpdatedMessageSchema,
 	runtimeStateStreamClineSessionContextUpdatedMessageSchema,
+	runtimeStateStreamJobQueueStatusMessageSchema,
 	runtimeStateStreamErrorMessageSchema,
 ]);
 export type RuntimeStateStreamMessage = z.infer<typeof runtimeStateStreamMessageSchema>;
