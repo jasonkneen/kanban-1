@@ -602,7 +602,7 @@ kanban task start "$TASK_ID" --workspace "$WORKSPACE" --base-ref "$BASE_REF"
 - [x] 1.2 — `kanban task queue-status` CLI subcommand (proxies jobs.getStatus → JSON output)
 - [x] 1.3 — `kanban task schedule --task-id --due-in|--due-at` CLI subcommand (enqueues via jobs.schedule TRPC, queue: scheduled-tasks)
 - [x] 1.4 — Extend board card schema with schedule metadata fields (scheduledAt, scheduledJobId, scheduledDueAt)
-- [ ] 1.5 — Create schedule wrapper script that guards against stale schedules
+- [x] 1.5 — `scripts/maintenance/schedule-task-guard.sh` checks task column before starting
 - [ ] 1.6 — Create `ScheduleTaskDialog` component with date picker and presets
 - [ ] 1.7 — Create `ScheduleBadge` component with countdown display
 - [ ] 1.8 — Add "Schedule" option to backlog card context menu
@@ -1010,12 +1010,12 @@ A detail panel replacing the normal chat/terminal view for workflow cards:
 - [x] 4.1 — `runtimeWorkflowPolicySchema` + `runtimeWorkflowStateSchema` exported from `api-contract.ts`
 - [x] 4.2 — `workflowPolicy` + `workflowState` nullable optional fields added to `runtimeBoardCardSchema`
 - [x] 4.3 — `scripts/workflows/planner-step.sh`: policy-gated iterating step; reads state/policy JSON, writes plan/exec/verify artifacts to `.kanban-workflows/<taskId>/iter-N/`, self-reschedules via `job_queue schedule`
-- [ ] 4.4 — Add `kanban task update-workflow` CLI command
-- [ ] 4.5 — Add `startWorkflow`, `pauseWorkflow`, `resumeWorkflow`, `stopWorkflow` TRPC endpoints
+- [x] 4.4 — Add `kanban task update-workflow-state` CLI command; `RuntimeUpdateTaskInput` extended with workflowPolicy/workflowState
+- [x] 4.5 — `startWorkflow`, `pauseWorkflow`, `resumeWorkflow`, `stopWorkflow` TRPC procedures in `jobs-api.ts` + `app-router.ts`; `getDatabaseUrl()` added to `JobQueueService`
 - [ ] 4.6 — Create `WorkflowCard` UI component with progress display
 - [ ] 4.7 — Create `WorkflowDetailPanel` with iteration timeline and controls
 - [ ] 4.8 — Create "New Workflow" dialog with policy configuration
-- [ ] 4.9 — Wire workflow queue names to per-task isolation
+- [x] 4.9 — Workflow queue names are per-task isolated by convention: `kanban.workflow.<taskId>.plan` (enforced in `startWorkflow` + shell scripts)
 - [ ] 4.10 — Test: start a 3-iteration workflow, verify all steps execute with artifacts
 
 ---
