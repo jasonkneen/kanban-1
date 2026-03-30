@@ -67,6 +67,10 @@ vi.mock("@/stores/workspace-metadata-store", () => ({
 	useTaskWorkspaceStateVersionValue: () => 0,
 }));
 
+vi.mock("@/hooks/use-is-mobile", () => ({
+	useIsMobile: () => false,
+}));
+
 function createCard(id: string): BoardCard {
 	return {
 		id,

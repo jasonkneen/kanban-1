@@ -16,7 +16,7 @@ import {
 	Settings,
 	Terminal,
 } from "lucide-react";
-import { useCallback, useState, useSyncExternalStore } from "react";
+import { useState } from "react";
 import { OpenWorkspaceButton } from "@/components/open-workspace-button";
 import {
 	getRuntimeShortcutIconComponent,
@@ -29,6 +29,7 @@ import { cn } from "@/components/ui/cn";
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip } from "@/components/ui/tooltip";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import type { RuntimeGitSyncAction, RuntimeProjectShortcut } from "@/runtime/types";
 import {
 	useHomeGitSummaryValue,
@@ -38,19 +39,6 @@ import {
 import type { OpenTargetId, OpenTargetOption } from "@/utils/open-targets";
 import { formatPathForDisplay } from "@/utils/path-display";
 import { isMacPlatform } from "@/utils/platform";
-
-const MOBILE_BREAKPOINT = "(max-width: 768px)";
-
-function useIsMobile(): boolean {
-	const subscribe = useCallback((cb: () => void) => {
-		const mql = window.matchMedia(MOBILE_BREAKPOINT);
-		mql.addEventListener("change", cb);
-		return () => mql.removeEventListener("change", cb);
-	}, []);
-	const getSnapshot = useCallback(() => window.matchMedia(MOBILE_BREAKPOINT).matches, []);
-	const getServerSnapshot = useCallback(() => false, []);
-	return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
-}
 
 type SettingsSection = "shortcuts";
 type CreateShortcutResult = { ok: boolean; message?: string };
