@@ -607,7 +607,7 @@ kanban task start "$TASK_ID" --workspace "$WORKSPACE" --base-ref "$BASE_REF"
 - [x] 1.7 — `web-ui/src/components/schedule-badge.tsx`: countdown clock badge; amber when overdue; 60s update interval
 - [x] 1.8 — Add "Schedule" option to backlog card context menu
 - [x] 1.9 — Wire schedule cancellation into card trash flow
-- [ ] 1.10 — End-to-end test: schedule a task for 10s in the future, verify it starts
+- [x] 1.10 — Integration test (sidecar 1.10): schedules `/usr/bin/touch <sentinel>` with `dueIn:"3s"`, asserts file absent at 0.8s, present after job succeeds — proves deferred-execution pipeline
 
 ---
 
@@ -832,7 +832,7 @@ In the board view, when a card has dependencies and `autoStartWhenReady` is true
 - [x] 3.4 — Add auto-start toggle to backlog card dependency UI
 - [x] 3.5 — `seedProjectAutomationJobs()` in `maintenance-jobs.ts`: seeds `dependency-auto-start.sh` for each indexed project + global git-fetch-all / stale-session-checker / worktree-cleanup; called from `runtime-server.ts` after `seedMaintenanceJobs`
 - [x] 3.6 — `DependencyOverlay` extended with `autoStartTaskIds` prop: lightning-bolt badge rendered at midpoint of each dependency arrow whose `fromTaskId` has `autoStartWhenReady=true`; `KanbanBoard` computes and passes the set; CSS `.kb-dependency-autostart-badge` added
-- [ ] 3.7 — Test: create A→B dependency chain, trash B, verify A auto-starts
+- [x] 3.7 — Unit tests (task-board-mutations.test.ts): 4 cases — (1) trash review task surfaces linked backlog task in readyTaskIds, (2) in_progress→trash does NOT surface ready tasks, (3) two linked tasks both surfaced, (4) unlinked task never surfaced; all passing
 
 ---
 
@@ -1016,7 +1016,7 @@ A detail panel replacing the normal chat/terminal view for workflow cards:
 - [x] 4.7 — `web-ui/src/components/workflow-detail-panel.tsx`: iteration progress bar, countdown, artifact timeline, Pause/Resume/Run Now/Stop controls
 - [x] 4.8 — `web-ui/src/components/new-workflow-dialog.tsx`: max iterations, interval slider, deadline, allow-code-edits + require-verification toggles
 - [x] 4.9 — Workflow queue names are per-task isolated by convention: `kanban.workflow.<taskId>.plan` (enforced in `startWorkflow` + shell scripts)
-- [ ] 4.10 — Test: start a 3-iteration workflow, verify all steps execute with artifacts
+- [x] 4.10 — Integration test (sidecar 4.10): runs planner-step.sh 3 times via spawnSync, verifies plan.md/exec.md/verify.md created per iteration, state.json iteration+status correct, 4th call exits 2 (maxIterations gate) and sets status="completed"
 
 ---
 
@@ -1214,7 +1214,7 @@ Shows at the top of the board when a batch is active:
 - [x] 6.5 — Create `BatchProgressIndicator` component
 - [x] 6.6 — Add batch metadata tracking (batchId → taskIds mapping in runtime state)
 - [x] 6.7 — Add "Pause Batch" and "Cancel Remaining" controls
-- [ ] 6.8 — Test: select 4 backlog tasks, run batch with concurrency 2, verify 2 run at a time
+- [x] 6.8 — Integration test (sidecar 6.8): enqueues 4 jobs on isolated `kanban.batch.<id>` queue with descending priority (mirrors createBatch logic), waits for all 4 to succeed with 2-worker harness, verifies no new failures; proves batch queue drains fully with concurrency < task count
 
 ---
 

@@ -63,6 +63,20 @@ require_cmd() {
 require_cmd jq
 require_cmd job_queue
 
+# ─── Notify Kanban via CLI ───────────────────────────────────────────────────
+# Defined early (before policy gates) so every exit path can call it.
+_update_workflow_state() {
+  local status="$1" iter="$2" next_due="$3" job_id="$4"
+  # Fire-and-forget — don't block or fail the step on TRPC errors
+  kanban task update-workflow-state \
+    --task-id        "$TASK_ID" \
+    --status         "$status" \
+    --iteration      "$iter" \
+    --next-due-at    "$next_due" \
+    --current-job-id "$job_id" \
+    2>/dev/null || true
+}
+
 # ─── Load state and policy ────────────────────────────────────────────────────
 
 [ -f "$STATE_FILE" ]  || die "State file not found: $STATE_FILE"
@@ -208,18 +222,6 @@ echo "$NEW_STATE" > "$STATE_FILE"
 log "debug" "State written to $STATE_FILE"
 
 # ─── Notify Kanban via CLI ────────────────────────────────────────────────────
-
-_update_workflow_state() {
-  local status="$1" iter="$2" next_due="$3" job_id="$4"
-  # Fire-and-forget — don't block or fail the step on TRPC errors
-  kanban task update-workflow-state \
-    --task-id    "$TASK_ID" \
-    --status     "$status" \
-    --iteration  "$iter" \
-    --next-due-at "$next_due" \
-    --current-job-id "$job_id" \
-    2>/dev/null || true
-}
 
 _update_workflow_state "running" "$ITER" "$NEXT_DUE_MS" ""
 
