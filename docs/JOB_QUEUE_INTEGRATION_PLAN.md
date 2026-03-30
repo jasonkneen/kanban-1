@@ -1207,7 +1207,7 @@ Shows at the top of the board when a batch is active:
 
 ### Progress
 
-- [ ] 6.1 — Add `createBatch` to jobs TRPC API
+- [x] 6.1 — `createBatch` in `jobs-api.ts` + TRPC procedure in `app-router.ts`; `kanban task batch --task-ids --concurrency --project-path` CLI command in `task.ts`
 - [ ] 6.2 — Add multi-select interaction to backlog cards (shift-click, cmd-click)
 - [ ] 6.3 — Create `BatchActionBar` floating component
 - [ ] 6.4 — Create `BatchConfigDialog` with priority reordering and concurrency slider

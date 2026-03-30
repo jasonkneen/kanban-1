@@ -350,6 +350,14 @@ export interface RuntimeTrpcContext {
 		replayFailed: (input?: { queue?: string; limit?: number }) => Promise<{ ok: boolean; replayed: number }>;
 		startSidecar: () => Promise<{ ok: boolean; error?: string }>;
 		stopSidecar: () => Promise<{ ok: boolean }>;
+		createBatch: (input: { taskIds: string[]; concurrency: number; projectPath: string }) => Promise<{
+			ok: boolean;
+			batchId: string;
+			queue: string;
+			jobIds: string[];
+			taskCount: number;
+			concurrency: number;
+		}>;
 	};
 }
 
@@ -718,6 +726,17 @@ export const runtimeAppRouter = t.router({
 		stopSidecar: t.procedure.mutation(async ({ ctx }) => {
 			return await ctx.jobsApi.stopSidecar();
 		}),
+		createBatch: t.procedure
+			.input(
+				z.object({
+					taskIds: z.array(z.string()).min(1),
+					concurrency: z.number().int().positive().max(10).default(2),
+					projectPath: z.string(),
+				}),
+			)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.jobsApi.createBatch(input);
+			}),
 	}),
 });
 

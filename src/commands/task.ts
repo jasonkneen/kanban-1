@@ -537,6 +537,34 @@ async function getTaskQueueStatus(input: { cwd: string; projectPath?: string }):
 	};
 }
 
+async function batchTasks(input: {
+	cwd: string;
+	taskIds: string[];
+	concurrency: number;
+	projectPath?: string;
+}): Promise<JsonRecord> {
+	if (input.taskIds.length === 0) {
+		throw new Error("batch requires at least one task ID.");
+	}
+	const workspaceRepoPath = await resolveWorkspaceRepoPath(input.projectPath, input.cwd);
+	const workspaceId = await ensureRuntimeWorkspace(workspaceRepoPath);
+	const runtimeClient = createRuntimeTrpcClient(workspaceId);
+	const result = await runtimeClient.jobs.createBatch.mutate({
+		taskIds: input.taskIds,
+		concurrency: input.concurrency,
+		projectPath: workspaceRepoPath,
+	});
+	return {
+		ok: result.ok,
+		batchId: result.batchId,
+		queue: result.queue,
+		jobIds: result.jobIds,
+		taskCount: result.taskCount,
+		concurrency: result.concurrency,
+		workspacePath: workspaceRepoPath,
+	};
+}
+
 async function listReadyTasks(input: { cwd: string; projectPath?: string }): Promise<JsonRecord> {
 	const workspaceRepoPath = await resolveWorkspaceRepoPath(input.projectPath, input.cwd, {
 		autoCreateIfMissing: false,
@@ -1217,5 +1245,48 @@ export function registerTaskCommand(program: Command): void {
 						projectPath: options.projectPath,
 					}),
 			);
+		});
+
+	task
+		.command("batch")
+		.description(
+			"Enqueue multiple backlog tasks as a prioritised batch on an isolated job-queue queue with controlled concurrency.",
+		)
+		.requiredOption(
+			"--task-ids <ids>",
+			"Comma-separated task IDs to include in the batch (first ID = highest priority).",
+		)
+		.option("--concurrency <n>", "Maximum parallel tasks (1–10). Default: 2.", "2")
+		.option("--project-path <path>", "Workspace path. Defaults to current directory workspace.")
+		.addHelpText(
+			"after",
+			[
+				"",
+				"Examples:",
+				"  kanban task batch --task-ids abc123,def456,ghi789 --concurrency 2",
+				"  kanban task batch --task-ids abc123,def456 --concurrency 1 --project-path ~/projects/myapp",
+				"",
+				"The batch runs on a dedicated kanban.batch.<id> queue.  Each task is",
+				"enqueued with descending priority so earlier IDs start first.",
+				"",
+			].join("\n"),
+		)
+		.action(async (options: { taskIds: string; concurrency: string; projectPath?: string }) => {
+			await runTaskCommand(async () => {
+				const taskIds = options.taskIds
+					.split(",")
+					.map((id) => id.trim())
+					.filter(Boolean);
+				if (taskIds.length === 0) {
+					throw new Error("--task-ids must contain at least one non-empty task ID.");
+				}
+				const concurrency = Math.max(1, Math.min(10, Number.parseInt(options.concurrency, 10) || 2));
+				return await batchTasks({
+					cwd: process.cwd(),
+					taskIds,
+					concurrency,
+					projectPath: options.projectPath,
+				});
+			});
 		});
 }

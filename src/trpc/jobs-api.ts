@@ -110,6 +110,48 @@ export function createJobsApi(deps: CreateJobsApiDependencies) {
 			await svc().stopSidecar();
 			return { ok: true };
 		},
+
+		// -----------------------------------------------------------------
+		// Batch operations (Project 6)
+		// -----------------------------------------------------------------
+
+		/**
+		 * Enqueue a set of backlog tasks as a prioritised batch on an isolated
+		 * per-batch queue.  Tasks are enqueued with descending priority so the
+		 * first task in the list has the highest priority.  The job queue's worker
+		 * pool provides natural concurrency control — only `concurrency` workers
+		 * need to be assigned to the batch queue for strict cap enforcement.
+		 */
+		createBatch: async (input: { taskIds: string[]; concurrency: number; projectPath: string }) => {
+			const batchId = globalThis.crypto.randomUUID().slice(0, 8);
+			const queue = `kanban.batch.${batchId}`;
+			const kanbanBin = process.argv[1] ?? "kanban";
+			const jobIds: string[] = [];
+
+			for (let i = 0; i < input.taskIds.length; i++) {
+				const taskId = input.taskIds[i];
+				// Priority descends so earlier tasks in the list are processed first.
+				const priority = input.taskIds.length - i;
+				const jobId = await svc().enqueue({
+					queue,
+					priority,
+					command: process.execPath,
+					args: [kanbanBin, "task", "start", "--task-id", taskId, "--project-path", input.projectPath],
+					maxAttempts: 2,
+					timeoutSecs: 7200,
+				});
+				jobIds.push(jobId);
+			}
+
+			return {
+				ok: true,
+				batchId,
+				queue,
+				jobIds,
+				taskCount: input.taskIds.length,
+				concurrency: input.concurrency,
+			};
+		},
 	};
 }
 
