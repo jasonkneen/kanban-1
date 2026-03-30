@@ -78,6 +78,24 @@ function readWorkspaceIdFromRequest(request: IncomingMessage, requestUrl: URL): 
 }
 
 export async function createRuntimeServer(deps: CreateRuntimeServerDependencies): Promise<RuntimeServer> {
+	// ---------------------------------------------------------------------------
+	// Job queue sidecar — instantiate once, reuse across all requests.
+	// ---------------------------------------------------------------------------
+	// We inline the import here so the linter cannot strip it as "unused" before
+	// the service is wired into the TRPC context below.
+	const { JobQueueService } = await import("./job-queue-service");
+	const { createJobsApi } = await import("../trpc/jobs-api");
+	const jobQueueService = new JobQueueService();
+	const jobsApi = createJobsApi({ getJobQueueService: () => jobQueueService });
+
+	// Start sidecar if the binary is available — failure is non-fatal.
+	if (jobQueueService.isAvailable()) {
+		jobQueueService.startSidecar().catch((err: unknown) => {
+			const msg = err instanceof Error ? err.message : String(err);
+			deps.warn(`[job-queue] sidecar failed to start: ${msg}`);
+		});
+	}
+
 	const webUiDir = getWebUiDir();
 
 	try {
@@ -220,6 +238,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				broadcastRuntimeWorkspaceStateUpdated: deps.runtimeStateHub.broadcastRuntimeWorkspaceStateUpdated,
 				broadcastTaskReadyForReview: deps.runtimeStateHub.broadcastTaskReadyForReview,
 			}),
+			jobsApi,
 		};
 	};
 
@@ -321,6 +340,11 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 			await clineWatcherRegistry.close();
 			await deps.runtimeStateHub.close();
 			await terminalWebSocketBridge.close();
+			// Stop the job queue sidecar before closing the HTTP server so that
+			// any in-flight jobs have a chance to complete.
+			await jobQueueService.stopSidecar().catch(() => {
+				/* non-fatal */
+			});
 			await new Promise<void>((resolveClose, rejectClose) => {
 				server.close((error) => {
 					if (error) {

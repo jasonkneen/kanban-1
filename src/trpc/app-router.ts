@@ -318,6 +318,39 @@ export interface RuntimeTrpcContext {
 	hooksApi: {
 		ingest: (input: RuntimeHookIngestRequest) => Promise<RuntimeHookIngestResponse>;
 	};
+	jobsApi: {
+		getStatus: () => Promise<{
+			available: boolean;
+			running: boolean;
+			health: unknown | null;
+			inspect: unknown | null;
+		}>;
+		enqueue: (input: {
+			command: string;
+			args?: string[];
+			queue?: string;
+			priority?: number;
+			maxAttempts?: number;
+			cwd?: string;
+			timeoutSecs?: number;
+		}) => Promise<{ ok: boolean; jobId: string }>;
+		schedule: (input: {
+			command: string;
+			args?: string[];
+			queue?: string;
+			priority?: number;
+			maxAttempts?: number;
+			cwd?: string;
+			timeoutSecs?: number;
+			dueIn?: string;
+			dueAt?: number;
+		}) => Promise<{ ok: boolean; jobId: string }>;
+		pauseQueue: (input: { queue: string; reason?: string }) => Promise<{ ok: boolean }>;
+		resumeQueue: (input: { queue: string; reason?: string }) => Promise<{ ok: boolean }>;
+		replayFailed: (input?: { queue?: string; limit?: number }) => Promise<{ ok: boolean; replayed: number }>;
+		startSidecar: () => Promise<{ ok: boolean; error?: string }>;
+		stopSidecar: () => Promise<{ ok: boolean }>;
+	};
 }
 
 interface RuntimeTrpcContextWithWorkspaceScope extends RuntimeTrpcContext {
@@ -627,6 +660,64 @@ export const runtimeAppRouter = t.router({
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.hooksApi.ingest(input);
 			}),
+	}),
+	jobs: t.router({
+		getStatus: t.procedure.query(async ({ ctx }) => {
+			return await ctx.jobsApi.getStatus();
+		}),
+		enqueue: t.procedure
+			.input(
+				z.object({
+					command: z.string(),
+					args: z.array(z.string()).optional(),
+					queue: z.string().optional(),
+					priority: z.number().int().optional(),
+					maxAttempts: z.number().int().positive().optional(),
+					cwd: z.string().optional(),
+					timeoutSecs: z.number().int().positive().optional(),
+				}),
+			)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.jobsApi.enqueue(input);
+			}),
+		schedule: t.procedure
+			.input(
+				z.object({
+					command: z.string(),
+					args: z.array(z.string()).optional(),
+					queue: z.string().optional(),
+					priority: z.number().int().optional(),
+					maxAttempts: z.number().int().positive().optional(),
+					cwd: z.string().optional(),
+					timeoutSecs: z.number().int().positive().optional(),
+					dueIn: z.string().optional(),
+					dueAt: z.number().int().positive().optional(),
+				}),
+			)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.jobsApi.schedule(input);
+			}),
+		pauseQueue: t.procedure
+			.input(z.object({ queue: z.string(), reason: z.string().optional() }))
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.jobsApi.pauseQueue(input);
+			}),
+		resumeQueue: t.procedure
+			.input(z.object({ queue: z.string(), reason: z.string().optional() }))
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.jobsApi.resumeQueue(input);
+			}),
+		replayFailed: t.procedure
+			.input(z.object({ queue: z.string().optional(), limit: z.number().int().positive().optional() }).optional())
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.jobsApi.replayFailed(input ?? undefined);
+			}),
+		startSidecar: t.procedure.mutation(async ({ ctx }) => {
+			return await ctx.jobsApi.startSidecar();
+		}),
+		stopSidecar: t.procedure.mutation(async ({ ctx }) => {
+			return await ctx.jobsApi.stopSidecar();
+		}),
 	}),
 });
 
