@@ -28,5 +28,22 @@ if [ ! -f "${DATA_DIR}/remote.db" ]; then
     node dist/docker-init.js
 fi
 
+# ── HTTPS configuration ───────────────────────────────────────────────────────
+# If KANBAN_TLS_CERT + KANBAN_TLS_KEY are set, the Node process reads them
+# directly (handled in cli.ts resolveRuntimeTls).
+#
+# If neither is set but KANBAN_HTTPS=1, pass --https to generate a self-signed
+# cert. Browsers will show a one-time warning which can be bypassed via
+# Advanced → Proceed. Required for push notifications and PWA install over LAN.
+#
+# If nothing is set, start plain HTTP.
+if [ -n "${KANBAN_TLS_CERT}" ] && [ -n "${KANBAN_TLS_KEY}" ]; then
+    # Cert paths are set — cli.ts will read them from env, no flag needed.
+    set -- "$@"
+elif [ "${KANBAN_HTTPS}" = "1" ]; then
+    # Self-signed mode.
+    set -- "$@" "--https"
+fi
+
 # ── Hand off to the main process ─────────────────────────────────────────────
 exec "$@"

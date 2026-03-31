@@ -37,9 +37,9 @@ services:
     stop_grace_period: 15s
 
     healthcheck:
-      # Use http or https depending on whether TLS is configured.
+      # Use HTTPS (self-signed, ignore cert errors) when TLS is enabled.
       test: ["CMD", "node", "-e",
-        "const h = process.env.KANBAN_TLS_CERT ? require('https') : require('http'); const opts = process.env.KANBAN_TLS_CERT ? {rejectUnauthorized:false} : {}; h.get(Object.assign({hostname:'localhost',port:3484,path:'/login/config'},opts),(r)=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+        "const tls = process.env.KANBAN_TLS_CERT || process.env.KANBAN_HTTPS === '1'; const h = tls ? require('https') : require('http'); const opts = tls ? {hostname:'localhost',port:3484,path:'/login/config',rejectUnauthorized:false} : {hostname:'localhost',port:3484,path:'/login/config'}; h.get(opts,(r)=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 3
