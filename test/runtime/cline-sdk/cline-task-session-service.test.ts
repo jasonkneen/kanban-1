@@ -58,6 +58,9 @@ type StopTaskSessionMock = Mock<(taskId: string) => Promise<void>>;
 type AbortTaskSessionMock = Mock<(taskId: string) => Promise<void>>;
 type ClearTaskSessionsMock = Mock<(taskId: string) => Promise<void>>;
 type ReadPersistedTaskSessionMock = Mock<(taskId: string) => Promise<ClinePersistedTaskSessionSnapshot | null>>;
+type BindTaskSessionToConversationMock = Mock<
+	(taskId: string, conversationId: string) => Promise<ClinePersistedTaskSessionSnapshot | null>
+>;
 type DisposeMock = Mock<() => Promise<void>>;
 
 interface FakeClineSessionRuntimeController {
@@ -69,6 +72,7 @@ interface FakeClineSessionRuntimeController {
 	abortTaskSessionMock: AbortTaskSessionMock;
 	clearTaskSessionsMock: ClearTaskSessionsMock;
 	readPersistedTaskSessionMock: ReadPersistedTaskSessionMock;
+	bindTaskSessionToConversationMock: BindTaskSessionToConversationMock;
 	disposeMock: DisposeMock;
 	createRuntime(options: CreateInMemoryClineSessionRuntimeOptions): ClineSessionRuntime;
 	getTaskSessionId(taskId: string): string | null;
@@ -127,6 +131,7 @@ function createFakeClineSessionRuntime(): FakeClineSessionRuntimeController {
 	const abortTaskSessionMock: AbortTaskSessionMock = vi.fn(async () => {});
 	const clearTaskSessionsMock: ClearTaskSessionsMock = vi.fn(async (_taskId: string) => {});
 	const readPersistedTaskSessionMock: ReadPersistedTaskSessionMock = vi.fn(async () => null);
+	const bindTaskSessionToConversationMock: BindTaskSessionToConversationMock = vi.fn(async () => null);
 	const disposeMock: DisposeMock = vi.fn(async () => {});
 
 	const createRuntime = (options: CreateInMemoryClineSessionRuntimeOptions): ClineSessionRuntime => {
@@ -236,6 +241,16 @@ function createFakeClineSessionRuntime(): FakeClineSessionRuntimeController {
 			getTaskSessionId(taskId: string): string | null {
 				return sessionIdByTaskId.get(taskId) ?? null;
 			},
+			async bindTaskSessionToConversation(
+				taskId: string,
+				conversationId: string,
+			): Promise<ClinePersistedTaskSessionSnapshot | null> {
+				const snapshot = await bindTaskSessionToConversationMock(taskId, conversationId);
+				if (snapshot) {
+					bindTaskSession(taskId, snapshot.record.sessionId);
+				}
+				return snapshot;
+			},
 			async readPersistedTaskSession(taskId: string): Promise<ClinePersistedTaskSessionSnapshot | null> {
 				return await readPersistedTaskSessionMock(taskId);
 			},
@@ -293,6 +308,7 @@ function createFakeClineSessionRuntime(): FakeClineSessionRuntimeController {
 		abortTaskSessionMock,
 		clearTaskSessionsMock,
 		readPersistedTaskSessionMock,
+		bindTaskSessionToConversationMock,
 		disposeMock,
 		createRuntime,
 		getTaskSessionId(taskId: string): string | null {
@@ -584,6 +600,53 @@ describe("InMemoryClineTaskSessionService", () => {
 				}),
 			);
 		});
+	});
+
+	it("hydrates teammate card history from the underlying conversation alias", async () => {
+		const { service, runtime } = createTrackedService();
+		runtime.bindTaskSessionToConversationMock.mockResolvedValue({
+			record: {
+				sessionId: "sess-teammate-1",
+				source: "core" as ClinePersistedTaskSessionSnapshot["record"]["source"],
+				status: "running",
+				startedAt: "2026-03-17T10:00:00.000Z",
+				updatedAt: "2026-03-17T10:05:00.000Z",
+				interactive: true,
+				provider: "anthropic",
+				model: "claude-sonnet-4-6",
+				cwd: "/tmp/worktree",
+				workspaceRoot: "/tmp/workspace-root",
+				enableTools: true,
+				enableSpawn: true,
+				enableTeams: true,
+				isSubagent: false,
+				conversationId: "conv-teammate-1",
+			},
+			messages: [
+				{
+					role: "user",
+					content: "Investigate the models directory",
+				},
+				{
+					role: "assistant",
+					content: "I am reading the files now.",
+				},
+			],
+		});
+
+		const summary = await service.registerTaskSessionAlias("teammate-models-analyst", {
+			conversationId: "conv-teammate-1",
+			workspacePath: "/tmp/worktree",
+		});
+
+		expect(summary?.taskId).toBe("teammate-models-analyst");
+		expect(
+			(await service.loadTaskSessionMessages("teammate-models-analyst")).map((message) => message.content),
+		).toEqual(["Investigate the models directory", "I am reading the files now."]);
+		expect(runtime.bindTaskSessionToConversationMock).toHaveBeenCalledWith(
+			"teammate-models-analyst",
+			"conv-teammate-1",
+		);
 	});
 
 	it("defaults to the SDK cline provider when provider is not explicitly configured", async () => {

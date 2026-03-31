@@ -33,6 +33,11 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./agent-sync": {
+      "development": "./src/agent-sync/kanban-agent-sync.ts",
+      "types": "./dist/agent-sync/kanban-agent-sync.d.ts",
+      "import": "./dist/agent-sync/kanban-agent-sync.js"
     }
   },
   "files": [

@@ -67,6 +67,7 @@ export interface StartClineSessionRuntimeRequest {
 	systemPrompt: string;
 	userInstructionWatcher?: ClineSdkUserInstructionWatcher;
 	requestToolApproval?: (request: ClineSdkToolApprovalRequest) => Promise<ClineSdkToolApprovalResult>;
+	onTeamEvent?: (event: { type: string; [key: string]: unknown }) => void;
 }
 
 export interface StartClineSessionRuntimeResult {
@@ -101,12 +102,17 @@ export interface ClineSessionRuntime {
 	abortTaskSession(taskId: string): Promise<void>;
 	clearTaskSessions(taskId: string): Promise<void>;
 	getTaskSessionId(taskId: string): string | null;
+	bindTaskSessionToConversation(
+		taskId: string,
+		conversationId: string,
+	): Promise<ClinePersistedTaskSessionSnapshot | null>;
 	readPersistedTaskSession(taskId: string): Promise<ClinePersistedTaskSessionSnapshot | null>;
 	dispose(): Promise<void>;
 }
 
 export interface CreateInMemoryClineSessionRuntimeOptions {
 	onTaskEvent?: (taskId: string, event: unknown) => void;
+	onTeamEvent?: (event: { type: string; [key: string]: unknown }) => void;
 	createSessionHost?: () => Promise<ClineSessionHostBoundary>;
 	createMcpRuntimeService?: () => ClineMcpRuntimeService;
 }
@@ -114,6 +120,7 @@ export interface CreateInMemoryClineSessionRuntimeOptions {
 // Own the SDK session host plus the taskId <-> sessionId bindings so higher layers can stay task-oriented.
 export class InMemoryClineSessionRuntime implements ClineSessionRuntime {
 	private readonly onTaskEvent: ((taskId: string, event: unknown) => void) | null;
+	private readonly onTeamEvent: ((event: { type: string; [key: string]: unknown }) => void) | null;
 	private readonly createSessionHost: () => Promise<ClineSessionHostBoundary>;
 	private readonly clineMcpRuntimeService: ClineMcpRuntimeService;
 	private readonly sessionIdByTaskId = new Map<string, string>();
@@ -127,6 +134,7 @@ export class InMemoryClineSessionRuntime implements ClineSessionRuntime {
 
 	constructor(options: CreateInMemoryClineSessionRuntimeOptions = {}) {
 		this.onTaskEvent = options.onTaskEvent ?? null;
+		this.onTeamEvent = options.onTeamEvent ?? null;
 		this.createSessionHost = options.createSessionHost ?? createClineSdkSessionHost;
 		const createMcpRuntimeService = options.createMcpRuntimeService ?? createClineMcpRuntimeService;
 		this.clineMcpRuntimeService = createMcpRuntimeService();
@@ -178,8 +186,11 @@ export class InMemoryClineSessionRuntime implements ClineSessionRuntime {
 					cwd: request.cwd,
 					mode: resolvedMode,
 					enableTools: true,
-					enableSpawnAgent: false,
-					enableAgentTeams: false,
+					enableSpawnAgent: true,
+					enableAgentTeams: true,
+					...((request.onTeamEvent ?? this.onTeamEvent)
+						? { onTeamEvent: request.onTeamEvent ?? this.onTeamEvent ?? undefined }
+						: {}),
 					execution: {
 						maxConsecutiveMistakes: DEFAULT_CLINE_MAX_CONSECUTIVE_MISTAKES,
 					},
@@ -324,6 +335,27 @@ export class InMemoryClineSessionRuntime implements ClineSessionRuntime {
 		return this.sessionIdByTaskId.get(taskId) ?? null;
 	}
 
+	async bindTaskSessionToConversation(
+		taskId: string,
+		conversationId: string,
+	): Promise<ClinePersistedTaskSessionSnapshot | null> {
+		const normalizedConversationId = conversationId.trim();
+		if (!normalizedConversationId) {
+			return null;
+		}
+		const sessionHost = await this.ensureSessionHost();
+		const record = await this.findPersistedConversationSessionRecord(normalizedConversationId, sessionHost);
+		if (!record) {
+			return null;
+		}
+		this.bindTaskSession(taskId, record.sessionId);
+		const messages = await sessionHost.readMessages(record.sessionId);
+		return {
+			record,
+			messages,
+		};
+	}
+
 	async readPersistedTaskSession(taskId: string): Promise<ClinePersistedTaskSessionSnapshot | null> {
 		const sessionHost = await this.ensureSessionHost();
 		const record = await this.findPersistedTaskSessionRecord(taskId, sessionHost);
@@ -418,6 +450,27 @@ export class InMemoryClineSessionRuntime implements ClineSessionRuntime {
 		const records: ClineSdkSessionRecord[] = await sessionHost.list();
 		const matchingRecord = records
 			.filter((record: ClineSdkSessionRecord) => record.sessionId.startsWith(sessionIdPrefix))
+			.sort((left: ClineSdkSessionRecord, right: ClineSdkSessionRecord) => {
+				const leftTimestamp = Date.parse(left.updatedAt || left.startedAt);
+				const rightTimestamp = Date.parse(right.updatedAt || right.startedAt);
+				return rightTimestamp - leftTimestamp;
+			})[0];
+		return matchingRecord ?? null;
+	}
+
+	private async findPersistedConversationSessionRecord(
+		conversationId: string,
+		sessionHost: ClineSessionHostBoundary,
+	): Promise<ClineSdkSessionRecord | null> {
+		const records: ClineSdkSessionRecord[] = await sessionHost.list();
+		const matchingRecord = records
+			.filter((record: ClineSdkSessionRecord) => {
+				const recordValue =
+					record && typeof record === "object" && "conversationId" in record
+						? (record as { conversationId?: unknown }).conversationId
+						: null;
+				return typeof recordValue === "string" && recordValue.trim() === conversationId;
+			})
 			.sort((left: ClineSdkSessionRecord, right: ClineSdkSessionRecord) => {
 				const leftTimestamp = Date.parse(left.updatedAt || left.startedAt);
 				const rightTimestamp = Date.parse(right.updatedAt || right.startedAt);

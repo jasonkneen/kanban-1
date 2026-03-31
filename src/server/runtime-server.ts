@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage } from "node:http";
 import { join } from "node:path";
 
 import { createHTTPHandler } from "@trpc/server/adapters/standalone";
+import { createKanbanAgentSync } from "../agent-sync/kanban-agent-sync";
 import { handleClineMcpOauthCallback } from "../cline-sdk/cline-mcp-runtime-service";
 import {
 	type ClineTaskSessionService,
@@ -125,8 +126,23 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 	): Promise<ClineTaskSessionService> => {
 		let service = clineTaskSessionServiceByWorkspaceId.get(scope.workspaceId);
 		if (!service) {
+			const sync = createKanbanAgentSync({
+				workspacePath: scope.workspacePath,
+				onBoardChanged: async () => {
+					await deps.runtimeStateHub.broadcastRuntimeWorkspaceStateUpdated(scope.workspaceId, scope.workspacePath);
+				},
+				onTeammateDiscovered: async ({ taskId, conversationId, workspacePath }) => {
+					await service?.registerTaskSessionAlias(taskId, {
+						conversationId,
+						workspacePath,
+					});
+				},
+			});
 			service = createInMemoryClineTaskSessionService({
 				watcherRegistry: clineWatcherRegistry,
+				onTeamEvent: sync.onTeamEvent,
+				handleSubAgentStart: sync.sessionServicePlugin.handleSubAgentStart.bind(sync.sessionServicePlugin),
+				handleSubAgentEnd: sync.sessionServicePlugin.handleSubAgentEnd.bind(sync.sessionServicePlugin),
 			});
 			clineTaskSessionServiceByWorkspaceId.set(scope.workspaceId, service);
 			deps.runtimeStateHub.trackClineTaskSessionService(scope.workspaceId, scope.workspacePath, service);
