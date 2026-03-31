@@ -9,16 +9,24 @@ import {
 	createSessionHost,
 	createUserInstructionConfigWatcher,
 	getClineDefaultSystemPrompt,
-	listAvailableWorkflowsFromWatcher,
+	listAvailableRuntimeCommandsFromWatcher,
 	loadRulesForSystemPromptFromWatcher,
-	resolveWorkflowSlashCommandFromWatcher,
+	resolveRuntimeSlashCommandFromWatcher,
 	type SessionHost,
+	type StartSessionInput,
 	type ToolApprovalRequest,
 	type ToolApprovalResult,
 	type UserInstructionConfigWatcher,
-} from "@clinebot/core/node";
+} from "@clinebot/core";
+import type { BasicLogger } from "@clinebot/shared";
+import { resolveClineDataDir } from "@clinebot/shared/storage";
+import { CLINE_BUILTIN_SLASH_COMMANDS } from "./cline-slash-commands";
+
+export { createSessionHost, LoggerTelemetryAdapter, TelemetryService } from "@clinebot/core";
 
 export type ClineSdkSessionHost = SessionHost;
+export type ClineSdkStartSessionInput = StartSessionInput;
+export type ClineSdkBasicLogger = BasicLogger;
 export interface ClineSdkContentStartTextEvent {
 	type: "content_start";
 	contentType: "text";
@@ -204,6 +212,9 @@ export async function createClineSdkSessionHost(): Promise<ClineSdkSessionHost> 
 	});
 }
 
+export function resolveClineSdkDataDir(): string {
+	return resolveClineDataDir();
+}
 export async function buildClineSdkWorkspaceMetadata(cwd: string): Promise<string> {
 	return await buildWorkspaceMetadata(cwd);
 }
@@ -217,24 +228,33 @@ export function createClineSdkUserInstructionWatcher(workspacePath: string): Cli
 }
 
 export function listClineSdkWorkflowSlashCommands(watcher?: ClineSdkUserInstructionWatcher): ClineSdkSlashCommand[] {
-	const builtIns: ClineSdkSlashCommand[] = [];
+	const builtIns: ClineSdkSlashCommand[] = CLINE_BUILTIN_SLASH_COMMANDS.map((command) => ({
+		name: command.name,
+		instructions: "",
+		description: command.description,
+	}));
 	if (!watcher) {
 		return builtIns;
 	}
-	return [
-		...builtIns,
-		...listAvailableWorkflowsFromWatcher(watcher).map(
-			(workflow: { name: string; instructions: string; description?: string }) => ({
-				name: workflow.name,
-				instructions: workflow.instructions,
-				description: workflow.description,
-			}),
-		),
-	];
+	const byName = new Map<string, ClineSdkSlashCommand>();
+	for (const command of builtIns) {
+		byName.set(command.name, command);
+	}
+	for (const command of listAvailableRuntimeCommandsFromWatcher(watcher)) {
+		if (byName.has(command.name)) {
+			continue;
+		}
+		byName.set(command.name, {
+			name: command.name,
+			instructions: command.instructions,
+			description: command.kind === "workflow" ? "Workflow command" : "Skill command",
+		});
+	}
+	return [...byName.values()];
 }
 
 export function resolveClineSdkWorkflowSlashCommand(prompt: string, watcher: ClineSdkUserInstructionWatcher): string {
-	return resolveWorkflowSlashCommandFromWatcher(prompt, watcher);
+	return resolveRuntimeSlashCommandFromWatcher(prompt, watcher);
 }
 
 export function loadClineSdkRulesForSystemPrompt(watcher: ClineSdkUserInstructionWatcher): string {
