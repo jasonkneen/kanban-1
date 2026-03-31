@@ -23,8 +23,10 @@ import {
 	scryptSync,
 	timingSafeEqual,
 } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import type { IncomingMessage } from "node:http";
-import { hostname } from "node:os";
+import { homedir, hostname } from "node:os";
+import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { loadSqliteDb } from "@clinebot/shared/db";
@@ -146,13 +148,53 @@ export function isLocalRequest(req: IncomingMessage): boolean {
 
 // ── AES-256-GCM helpers ───────────────────────────────────────────────────
 
-// Derives a machine-bound AES key from hostname + a fixed application salt.
-// This means the encrypted secret in the DB is only decryptable on the same
-// machine, providing an additional layer of protection if the DB file leaks.
+// Derives a stable AES key for encrypting secrets at rest.
+//
+// Priority order:
+//   1. KANBAN_SECRET_KEY env var — explicitly set by the operator (recommended in Docker).
+//   2. ~/.cline/kanban/.machine-key file — generated once and persisted to the data volume.
+//      This survives container restarts because the volume is mounted at $HOME.
+//   3. hostname() — fallback for bare-metal / dev installs (original behaviour).
+//
+// The key file approach (2) means Docker users don't need to set KANBAN_SECRET_KEY
+// manually — the first boot generates a key file in the volume and all subsequent
+// boots read the same key, regardless of container hostname changes.
 function deriveMachineKey(): Buffer {
-	const machineId = hostname();
 	const salt = Buffer.from("kanban-remote-auth-v1");
-	return scryptSync(machineId, salt, AES_KEY_BYTES) as Buffer;
+
+	// 1. Explicit env var — highest priority, fully portable across containers.
+	const envKey = process.env.KANBAN_SECRET_KEY?.trim();
+	if (envKey) {
+		return scryptSync(envKey, salt, AES_KEY_BYTES) as Buffer;
+	}
+
+	// 2. Persistent key file in the data directory.
+	const keyFilePath = join(homedir(), ".cline", "kanban", ".machine-key");
+	try {
+		// Try to read an existing key file.
+		const existing = readFileSync(keyFilePath, "utf-8").trim();
+		if (existing.length >= 32) {
+			return scryptSync(existing, salt, AES_KEY_BYTES) as Buffer;
+		}
+	} catch {
+		// File doesn't exist yet — generate and store it below.
+	}
+
+	// Generate a new stable key and persist it.
+	try {
+		const newKey = randomBytes(32).toString("hex");
+		const dir = join(homedir(), ".cline", "kanban");
+		if (!existsSync(dir)) {
+			mkdirSync(dir, { recursive: true });
+		}
+		writeFileSync(keyFilePath, newKey, { mode: 0o600, encoding: "utf-8" });
+		return scryptSync(newKey, salt, AES_KEY_BYTES) as Buffer;
+	} catch {
+		// Filesystem not writable — fall back to hostname.
+	}
+
+	// 3. hostname() fallback — for dev/bare-metal where the above isn't available.
+	return scryptSync(hostname(), salt, AES_KEY_BYTES) as Buffer;
 }
 
 function encryptValue(plaintext: string, machineKey: Buffer): string {
@@ -289,6 +331,36 @@ export async function createRemoteAuth(): Promise<RemoteAuth> {
 		return null;
 	}
 
+	// ── Raw row helpers ────────────────────────────────────────────────────
+	// SQLite returns snake_case column names. These helpers map them to the
+	// camelCase interfaces used throughout the codebase.
+
+	type SessionRow = {
+		id: string;
+		email: string;
+		user_id: string | null;
+		user_uuid: string;
+		display_name: string | null;
+		issued_at: number;
+		expires_at: number;
+		last_seen: number;
+		persistent: number;
+	};
+
+	function mapSessionRow(row: SessionRow): RemoteSessionRecord {
+		return {
+			id: row.id,
+			email: row.email,
+			userId: row.user_id,
+			userUuid: row.user_uuid,
+			displayName: row.display_name,
+			issuedAt: row.issued_at,
+			expiresAt: row.expires_at,
+			lastSeen: row.last_seen,
+			persistent: Number(row.persistent) === 1,
+		};
+	}
+
 	// ── User record helpers ──────────────────────────────────────────────
 
 	type UserRow = { uuid: string; email: string; display_name: string | null; created_at: number; role: string };
@@ -415,16 +487,16 @@ export async function createRemoteAuth(): Promise<RemoteAuth> {
 				.prepare(
 					"SELECT id, email, user_id, user_uuid, display_name, issued_at, expires_at, last_seen, persistent FROM remote_sessions WHERE id = ?",
 				)
-				.get(sessionId) as unknown as RemoteSessionRecord | undefined;
+				.get(sessionId) as unknown as SessionRow | undefined;
 
 			if (!row) return null;
-			if (row.expiresAt < Date.now()) {
+			if (row.expires_at < Date.now()) {
 				db.prepare("DELETE FROM remote_sessions WHERE id = ?").run(sessionId);
 				return null;
 			}
 
 			// Look up the user's current role — it may have been updated since session creation.
-			const userRow = db.prepare("SELECT role FROM remote_users WHERE uuid = ?").get(row.userUuid) as unknown as
+			const userRow = db.prepare("SELECT role FROM remote_users WHERE uuid = ?").get(row.user_uuid) as unknown as
 				| { role: string }
 				| undefined;
 			const role: RemoteUserRole = userRow?.role === "admin" || userRow?.role === "editor" ? userRow.role : "viewer";
@@ -432,11 +504,11 @@ export async function createRemoteAuth(): Promise<RemoteAuth> {
 			return {
 				sessionId: row.id,
 				email: row.email,
-				userId: row.userId,
-				userUuid: row.userUuid,
-				displayName: row.displayName ?? displayNameFromEmail(row.email),
-				issuedAt: row.issuedAt,
-				expiresAt: row.expiresAt,
+				userId: row.user_id,
+				userUuid: row.user_uuid,
+				displayName: row.display_name ?? displayNameFromEmail(row.email),
+				issuedAt: row.issued_at,
+				expiresAt: row.expires_at,
 				persistent: Number(row.persistent) === 1,
 				role,
 			};
@@ -470,11 +542,12 @@ export async function createRemoteAuth(): Promise<RemoteAuth> {
 		},
 
 		listSessions(): RemoteSessionRecord[] {
-			return db
+			const rows = db
 				.prepare(
-					"SELECT id, email, user_id, issued_at, expires_at, last_seen, persistent FROM remote_sessions WHERE expires_at > ? ORDER BY last_seen DESC",
+					"SELECT id, email, user_id, user_uuid, display_name, issued_at, expires_at, last_seen, persistent FROM remote_sessions WHERE expires_at > ? ORDER BY last_seen DESC",
 				)
-				.all(Date.now()) as unknown as RemoteSessionRecord[];
+				.all(Date.now()) as unknown as SessionRow[];
+			return rows.map(mapSessionRow);
 		},
 
 		async hashPassword(password: string): Promise<string> {
