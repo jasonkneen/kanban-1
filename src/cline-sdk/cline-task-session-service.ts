@@ -2,6 +2,8 @@
 // runtime-api.ts uses this service to start sessions, send messages, load
 // history, and subscribe to summaries and chat events without knowing SDK
 // host, repository, or event-adapter details.
+
+import { getRuntimeAgentCatalogEntry } from "../core/agent-catalog";
 import type {
 	RuntimeClineReasoningEffort,
 	RuntimeTaskImage,
@@ -355,6 +357,9 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 					systemPrompt = `${systemPrompt}\n\n${appendedSystemPrompt}`;
 				}
 
+				// Derive team support from the catalog rather than hardcoding it here.
+				// This ensures the catalog is the single source of truth for agent capabilities.
+				const clineEntry = getRuntimeAgentCatalogEntry("cline");
 				const startResult = await this.sessionRuntime.startTaskSession({
 					taskId: request.taskId,
 					cwd: request.cwd,
@@ -368,6 +373,7 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 					baseUrl: request.baseUrl,
 					reasoningEffort: request.reasoningEffort,
 					systemPrompt,
+					enableAgentTeams: clineEntry?.supportsTeams ?? false,
 					userInstructionWatcher: runtimeSetup.watcher,
 					requestToolApproval: runtimeSetup.requestToolApproval,
 				});
@@ -893,7 +899,7 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 
 	private emitTeammateStatus(
 		entry: ClineTaskSessionEntry,
-		taskId: string,
+		_taskId: string,
 		state: RuntimeTaskSessionSummary["state"],
 		activityText: string,
 	): RuntimeTaskSessionSummary {
@@ -920,11 +926,11 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 		if (typeof event.message === "string" && event.message.trim()) {
 			return event.message.trim();
 		}
-		if (typeof event["message"] === "string" && event["message"].trim()) {
-			return event["message"].trim();
+		if (typeof event.message === "string" && event.message.trim()) {
+			return event.message.trim();
 		}
-		if (typeof event["reason"] === "string" && event["reason"].trim()) {
-			return event["reason"].trim();
+		if (typeof event.reason === "string" && event.reason.trim()) {
+			return event.reason.trim();
 		}
 		if ("run" in event && event.run && typeof event.run === "object") {
 			const run = event.run as { currentActivity?: unknown; message?: unknown; lastProgressMessage?: unknown };

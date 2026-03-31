@@ -65,6 +65,8 @@ export interface StartClineSessionRuntimeRequest {
 	baseUrl?: string | null;
 	reasoningEffort?: RuntimeClineReasoningEffort | null;
 	systemPrompt: string;
+	/** Whether to enable agent teams for this session. Derived from the agent catalog's supportsTeams field. */
+	enableAgentTeams?: boolean;
 	userInstructionWatcher?: ClineSdkUserInstructionWatcher;
 	requestToolApproval?: (request: ClineSdkToolApprovalRequest) => Promise<ClineSdkToolApprovalResult>;
 	onTeamEvent?: (event: { type: string; [key: string]: unknown }) => void;
@@ -187,7 +189,8 @@ export class InMemoryClineSessionRuntime implements ClineSessionRuntime {
 					mode: resolvedMode,
 					enableTools: true,
 					enableSpawnAgent: true,
-					enableAgentTeams: true,
+					// Use the catalog-supplied flag; defaults to false if not specified so teams are opt-in.
+					enableAgentTeams: request.enableAgentTeams ?? false,
 					...((request.onTeamEvent ?? this.onTeamEvent)
 						? { onTeamEvent: request.onTeamEvent ?? this.onTeamEvent ?? undefined }
 						: {}),
