@@ -66,6 +66,15 @@ export function BoardColumn({
 	isDependencyLinking?: boolean;
 	workspacePath?: string | null;
 }): React.ReactElement {
+	const visibleCards = column.cards.filter((card) => !card.parentTaskId);
+	const cardsByParentId = new Map<string, BoardCardModel[]>();
+	for (const card of column.cards) {
+		if (card.parentTaskId) {
+			const siblings = cardsByParentId.get(card.parentTaskId) ?? [];
+			siblings.push(card);
+			cardsByParentId.set(card.parentTaskId, siblings);
+		}
+	}
 	const canCreate = column.id === "backlog" && onCreateTask;
 	const canStartAllTasks = column.id === "backlog" && onStartAllTasks;
 	const canClearTrash = column.id === "trash" && onClearTrash;
@@ -102,7 +111,7 @@ export function BoardColumn({
 					<div className="flex items-center gap-2">
 						<ColumnIndicator columnId={column.id} />
 						<span className="font-semibold text-sm">{column.title}</span>
-						<span className="text-text-secondary text-xs">{column.cards.length}</span>
+						<span className="text-text-secondary text-xs">{visibleCards.length}</span>
 					</div>
 					{canStartAllTasks ? (
 						<Button
@@ -112,7 +121,7 @@ export function BoardColumn({
 							onClick={onStartAllTasks}
 							disabled={column.cards.length === 0}
 							aria-label="Start all backlog tasks"
-							title={column.cards.length > 0 ? "Start all backlog tasks" : "Backlog is empty"}
+							title={visibleCards.length > 0 ? "Start all backlog tasks" : "Backlog is empty"}
 						/>
 					) : null}
 					{canClearTrash ? (
@@ -124,7 +133,7 @@ export function BoardColumn({
 							onClick={onClearTrash}
 							disabled={column.cards.length === 0}
 							aria-label="Clear trash"
-							title={column.cards.length > 0 ? "Clear trash permanently" : "Trash is empty"}
+							title={visibleCards.length > 0 ? "Clear trash permanently" : "Trash is empty"}
 						/>
 					) : null}
 				</div>
@@ -147,7 +156,7 @@ export function BoardColumn({
 							{(() => {
 								const items: ReactNode[] = [];
 								let draggableIndex = 0;
-								for (const card of column.cards) {
+								for (const card of visibleCards) {
 									if (column.id === "backlog" && editingTaskId === card.id) {
 										items.push(
 											<div
@@ -183,6 +192,8 @@ export function BoardColumn({
 											isDependencyTarget={dependencyTargetTaskId === card.id}
 											isDependencyLinking={isDependencyLinking}
 											workspacePath={workspacePath}
+											teammates={cardsByParentId.get(card.id)}
+											teammateSessionSummaries={taskSessions}
 											onClick={() => {
 												if (column.id === "backlog") {
 													onEditTask?.(card);

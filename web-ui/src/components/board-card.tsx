@@ -5,6 +5,8 @@ import { AlertCircle, GitBranch, Play, RotateCcw, Trash2 } from "lucide-react";
 import type { MouseEvent } from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { BoardCardTeammates } from "@/components/board-card-teammates";
+
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/spinner";
@@ -209,6 +211,8 @@ export function BoardCard({
 	isDependencyTarget = false,
 	isDependencyLinking = false,
 	workspacePath,
+	teammates,
+	teammateSessionSummaries,
 }: {
 	card: BoardCardModel;
 	index: number;
@@ -231,6 +235,8 @@ export function BoardCard({
 	isDependencyTarget?: boolean;
 	isDependencyLinking?: boolean;
 	workspacePath?: string | null;
+	teammates?: BoardCardModel[];
+	teammateSessionSummaries?: Record<string, RuntimeTaskSessionSummary>;
 }): React.ReactElement {
 	const [isHovered, setIsHovered] = useState(false);
 	const [titleContainerRef, titleRect] = useMeasure<HTMLDivElement>();
@@ -781,6 +787,12 @@ export function BoardCard({
 								>
 									{cancelAutomaticActionLabel}
 								</Button>
+							) : null}
+							{teammates && teammates.length > 0 ? (
+								<BoardCardTeammates
+									teammates={teammates}
+									sessionsByTaskId={teammateSessionSummaries ?? {}}
+								/>
 							) : null}
 						</div>
 					</div>
