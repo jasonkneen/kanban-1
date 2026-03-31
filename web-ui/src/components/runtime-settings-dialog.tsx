@@ -399,7 +399,7 @@ function UserPermissionsSection({
 	const [savingUuid, setSavingUuid] = useState<string | null>(null);
 
 	const load = useCallback(async () => {
-		if (!workspaceId) return;
+		// remote.users.list is not workspace-scoped — pass null to use the unscoped client.
 		setIsLoading(true);
 		setError(null);
 		try {
@@ -430,7 +430,6 @@ function UserPermissionsSection({
 
 	const handleRoleChange = useCallback(
 		async (uuid: string, role: UserRole) => {
-			if (!workspaceId) return;
 			setSavingUuid(uuid);
 			try {
 				const trpc = getRuntimeTrpcClient(workspaceId);
@@ -447,7 +446,6 @@ function UserPermissionsSection({
 
 	const handleBlock = useCallback(
 		async (uuid: string) => {
-			if (!workspaceId) return;
 			setSavingUuid(uuid);
 			try {
 				const trpc = getRuntimeTrpcClient(workspaceId);
