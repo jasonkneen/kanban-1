@@ -19,14 +19,27 @@ services:
       # - /home/user/another-repo:/repos/another-repo
       # ────────────────────────────────────────────────────────────────────
 
+      # ── TLS certificates (optional, for HTTPS) ───────────────────────────
+      # Mount CA-signed TLS certs so push notifications and PWA install work.
+      #
+      # Tailscale users — generate certs on the host with:
+      #   sudo tailscale cert support-wizard-4.tail5c9635.ts.net
+      # Then uncomment and adjust the paths below, and set KANBAN_TLS_CERT /
+      # KANBAN_TLS_KEY in your .env to the container-side paths.
+      #
+      # - /etc/ssl/kanban/cert.pem:/certs/cert.pem:ro
+      # - /etc/ssl/kanban/key.pem:/certs/key.pem:ro
+      # ────────────────────────────────────────────────────────────────────
+
     restart: unless-stopped
 
     # Give the 10-second graceful shutdown some headroom before Docker sends SIGKILL
     stop_grace_period: 15s
 
     healthcheck:
+      # Use http or https depending on whether TLS is configured.
       test: ["CMD", "node", "-e",
-        "require('http').get('http://localhost:3484/login/config', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+        "const h = process.env.KANBAN_TLS_CERT ? require('https') : require('http'); const opts = process.env.KANBAN_TLS_CERT ? {rejectUnauthorized:false} : {}; h.get(Object.assign({hostname:'localhost',port:3484,path:'/login/config'},opts),(r)=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 3

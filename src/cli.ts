@@ -195,6 +195,22 @@ async function applyRuntimePortOption(portOption: CliOptions["port"]): Promise<n
 }
 
 async function resolveRuntimeTls(options: CliOptions): Promise<boolean> {
+	// Allow cert/key to be supplied via environment variables so Docker users
+	// can mount Tailscale (or any CA-signed) certs without rebuilding the image.
+	// KANBAN_TLS_CERT / KANBAN_TLS_KEY take priority over CLI flags.
+	const envCertPath = process.env["KANBAN_TLS_CERT"]?.trim();
+	const envKeyPath = process.env["KANBAN_TLS_KEY"]?.trim();
+	if (envCertPath || envKeyPath) {
+		if (!envCertPath || !envKeyPath) {
+			throw new Error("Both KANBAN_TLS_CERT and KANBAN_TLS_KEY env vars must be set together.");
+		}
+		const cert = readFileSync(resolve(envCertPath), "utf8");
+		const key = readFileSync(resolve(envKeyPath), "utf8");
+		setKanbanRuntimeTls({ cert, key });
+		console.log(`HTTPS enabled using certificate from KANBAN_TLS_CERT: ${envCertPath}`);
+		return true;
+	}
+
 	const wantsHttps = options.https || options.cert !== null || options.key !== null;
 	if (!wantsHttps) {
 		return false;

@@ -113,6 +113,14 @@ ENV KANBAN_RUNTIME_PORT=3484
 # Disable runtime auto-update (npm install at runtime is inappropriate in a container)
 ENV KANBAN_NO_AUTO_UPDATE=1
 
+# TLS certificate paths — set these in .env to enable HTTPS.
+# Mount the cert/key files into the container and point these at the container paths.
+# Example with Tailscale certs:
+#   KANBAN_TLS_CERT=/certs/cert.pem
+#   KANBAN_TLS_KEY=/certs/key.pem
+ENV KANBAN_TLS_CERT=
+ENV KANBAN_TLS_KEY=
+
 # Production mode
 ENV NODE_ENV=production
 
