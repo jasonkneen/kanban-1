@@ -1,0 +1,14 @@
+node_modules
+web-ui/node_modules
+dist
+.git
+*.log
+.env
+.env.*
+!.env.example
+.DS_Store
+.nyc_output
+coverage
+*.test.ts
+test/
+.plan/

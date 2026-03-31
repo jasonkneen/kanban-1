@@ -63,6 +63,12 @@ await Promise.all([
 		entryPoints: ["src/index.ts"],
 		outfile: "dist/index.js",
 	}),
+	// Docker first-boot initialisation script
+	esbuild.build({
+		...shared,
+		entryPoints: ["src/docker-init.ts"],
+		outfile: "dist/docker-init.js",
+	}),
 ]);
 
-console.log("esbuild: bundled dist/cli.js and dist/index.js");
+console.log("esbuild: bundled dist/cli.js, dist/index.js, and dist/docker-init.js");

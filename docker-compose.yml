@@ -1,0 +1,37 @@
+services:
+  kanban:
+    build:
+      context: .
+    image: cline-kanban:latest
+    env_file: .env
+    ports:
+      - "${KANBAN_RUNTIME_PORT:-3484}:${KANBAN_RUNTIME_PORT:-3484}"
+    volumes:
+      # Persistent data: board state, sessions, auth DB, VAPID keys
+      - kanban-data:/data
+
+      # ── Mount your git repositories here ────────────────────────────────
+      # Each mounted repo will be available for Kanban to manage.
+      # Format: /absolute/path/on/host:/repos/name-shown-in-kanban
+      #
+      # Example:
+      # - /home/user/my-project:/repos/my-project
+      # - /home/user/another-repo:/repos/another-repo
+      # ────────────────────────────────────────────────────────────────────
+
+    restart: unless-stopped
+
+    # Give the 10-second graceful shutdown some headroom before Docker sends SIGKILL
+    stop_grace_period: 15s
+
+    healthcheck:
+      test: ["CMD", "node", "-e",
+        "require('http').get('http://localhost:3484/login/config', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  kanban-data:
+    driver: local
