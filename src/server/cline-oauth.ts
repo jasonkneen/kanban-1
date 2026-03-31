@@ -19,7 +19,8 @@ import { getKanbanRuntimeOrigin } from "../core/runtime-endpoint";
 import type { RemoteAuth } from "./remote-auth";
 
 const CALLBACK_PORTS = [34840, 34841, 34842, 34843, 34844, 34845, 34846, 34847, 34848, 34849];
-const CALLBACK_PATH = "/kanban/auth/callback";
+// Base callback path — the Kanban origin is appended as ?kanban=<url> at runtime.
+const CALLBACK_PATH_BASE = "/kanban/auth/callback";
 const OAUTH_TIMEOUT_MS = 5 * 60 * 1000;
 
 // ── Pending token store ───────────────────────────────────────────────────
@@ -75,7 +76,7 @@ export function getCurrentPendingToken(): string | null {
 
 // ── Main OAuth initiator ──────────────────────────────────────────────────
 
-export async function startClineOAuth(remoteAuth: RemoteAuth): Promise<string> {
+export async function startClineOAuth(remoteAuth: RemoteAuth, kanbanOrigin: string): Promise<string> {
 	let resolveUrl!: (url: string) => void;
 	let rejectUrl!: (err: unknown) => void;
 
@@ -84,10 +85,15 @@ export async function startClineOAuth(remoteAuth: RemoteAuth): Promise<string> {
 		rejectUrl = rej;
 	});
 
+	// Embed the Kanban origin in the callback path as ?kanban=<url>.
+	// The patched la0 HTML reads this from window.location.search and uses it
+	// to redirect back to the correct Kanban host after auth completes.
+	const callbackPath = `${CALLBACK_PATH_BASE}?kanban=${encodeURIComponent(kanbanOrigin)}`;
+
 	loginClineOAuth({
 		apiBaseUrl: "https://api.cline.bot",
 		callbackPorts: CALLBACK_PORTS,
-		callbackPath: CALLBACK_PATH,
+		callbackPath,
 		// Note: timeoutMs is not in the public type but is passed through to SZ internally.
 		// We cast to any to pass it through since TypeScript doesn't know about it.
 		...({ timeoutMs: OAUTH_TIMEOUT_MS } as Record<string, unknown>),

@@ -319,7 +319,15 @@ export function createLoginHandler(deps: CreateLoginHandlerDependencies): LoginH
 				// server (same mechanism as MCP OAuth). No vscode:// trigger.
 				if (method === "GET" && pathname === "/auth/start") {
 					try {
-						const authorizeUrl = await startClineOAuth(remoteAuth);
+						// Use the origin the browser passed (window.location.origin from the login page).
+						// Falls back to the Host header then the runtime origin.
+						const hostHeader = req.headers.host?.trim();
+						const scheme = req.headers["x-forwarded-proto"]?.toString().split(",")[0]?.trim() ?? "http";
+						const requestedOrigin = url.searchParams.get("origin")?.trim();
+						const kanbanOrigin =
+							requestedOrigin || (hostHeader ? `${scheme}://${hostHeader}` : getKanbanRuntimeOrigin());
+
+						const authorizeUrl = await startClineOAuth(remoteAuth, kanbanOrigin);
 						res.writeHead(302, { Location: authorizeUrl });
 						res.end();
 					} catch (err) {

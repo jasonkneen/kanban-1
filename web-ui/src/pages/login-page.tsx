@@ -100,7 +100,10 @@ export function LoginPage({ onSuccess }: LoginPageProps): ReactElement {
 	// For all users (local and remote), /auth/start handles the OAuth relay.
 	// Localhost never reaches this page, so this is always the remote flow.
 	const handleWorkosSignIn = () => {
-		window.location.href = "/auth/start";
+		// Pass the current origin so the OAuth callback can redirect back to
+		// the correct Kanban host (not hardcoded 127.0.0.1).
+		const origin = encodeURIComponent(window.location.origin);
+		window.location.href = `/auth/start?origin=${origin}`;
 	};
 
 	// ── Password sign-in ───────────────────────────────────────────────────

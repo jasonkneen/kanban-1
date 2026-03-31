@@ -21,7 +21,13 @@ try {
 
 const OLD_CLOSE = "<script>setTimeout(() => window.close(), 3000);</script>";
 const OLD_REPLACE = '<script>window.location.replace("/");</script>';
-const NEW = '<script>window.location.replace("/auth/finalize");</script>';
+// Dynamically read the kanban origin from the callback URL's ?kanban= param,
+// then redirect to /auth/finalize on the correct Kanban host.
+const NEW = `<script>
+var u=new URLSearchParams(location.search);
+var k=u.get("kanban")||location.origin;
+window.location.replace(k+"/auth/finalize");
+</script>`;
 
 let patched = false;
 
