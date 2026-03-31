@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { TASK_GIT_BASE_REF_PROMPT_VARIABLE, type TaskGitAction } from "@/git-actions/build-task-git-action-prompt";
+import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { useRuntimeSettingsClineController } from "@/hooks/use-runtime-settings-cline-controller";
 import { useRuntimeSettingsClineMcpController } from "@/hooks/use-runtime-settings-cline-mcp-controller";
 import { openFileOnHost } from "@/runtime/runtime-config-query";
@@ -89,6 +90,100 @@ function formatNotificationPermissionStatus(permission: BrowserNotificationPermi
 		return "not requested yet";
 	}
 	return permission;
+}
+
+function formatPushStateLabel(state: import("@/hooks/use-push-notifications").PushSubscriptionState): string {
+	switch (state) {
+		case "unsupported":
+			return "Not supported";
+		case "denied":
+			return "Permission denied";
+		case "subscribed":
+			return "Enabled";
+		case "loading":
+			return "Loading...";
+		case "default":
+			return "Disabled";
+	}
+}
+
+function isStandalonePwa(): boolean {
+	if (typeof window === "undefined") {
+		return false;
+	}
+	return (
+		window.matchMedia("(display-mode: standalone)").matches ||
+		("standalone" in navigator && (navigator as Record<string, unknown>).standalone === true)
+	);
+}
+
+function isIos(): boolean {
+	if (typeof navigator === "undefined") {
+		return false;
+	}
+	return (
+		/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.userAgent.includes("Mac") && "ontouchend" in document)
+	);
+}
+
+function PushNotificationSettings({
+	state,
+	error,
+	onSubscribe,
+	onUnsubscribe,
+	disabled,
+}: {
+	state: import("@/hooks/use-push-notifications").PushSubscriptionState;
+	error: string | null;
+	onSubscribe: () => Promise<void>;
+	onUnsubscribe: () => Promise<void>;
+	disabled: boolean;
+}): React.ReactElement {
+	const isSubscribed = state === "subscribed";
+	const isUnsupported = state === "unsupported";
+	const isDenied = state === "denied";
+	const isLoading = state === "loading";
+	const showIosHint = isUnsupported && isIos() && !isStandalonePwa();
+
+	return (
+		<div className="mt-3">
+			<div className="flex items-center gap-2">
+				<RadixSwitch.Root
+					checked={isSubscribed}
+					disabled={disabled || isUnsupported || isDenied || isLoading}
+					onCheckedChange={(checked) => {
+						if (checked) {
+							void onSubscribe();
+						} else {
+							void onUnsubscribe();
+						}
+					}}
+					className="relative h-5 w-9 rounded-full bg-surface-4 data-[state=checked]:bg-accent cursor-pointer disabled:opacity-40"
+				>
+					<RadixSwitch.Thumb className="block h-4 w-4 rounded-full bg-white shadow-sm transition-transform translate-x-0.5 data-[state=checked]:translate-x-[18px]" />
+				</RadixSwitch.Root>
+				<span className="text-[13px] text-text-primary">Push notifications (works in background)</span>
+			</div>
+			<p className="text-text-secondary text-[13px] m-0 mt-1.5">Status: {formatPushStateLabel(state)}</p>
+			{isDenied ? (
+				<p className="text-status-orange text-[13px] m-0 mt-1">
+					Push permission was denied. Re-enable notifications in your browser settings to use this feature.
+				</p>
+			) : null}
+			{showIosHint ? (
+				<p className="text-text-secondary text-[13px] m-0 mt-1">
+					On iOS, push notifications require adding this app to your home screen first (Share &rarr; Add to Home
+					Screen).
+				</p>
+			) : null}
+			{isUnsupported && !showIosHint ? (
+				<p className="text-text-secondary text-[13px] m-0 mt-1">
+					Push notifications are not supported in this browser.
+				</p>
+			) : null}
+			{error ? <p className="text-status-red text-[13px] m-0 mt-1">{error}</p> : null}
+		</div>
+	);
 }
 
 function getNextShortcutLabel(shortcuts: RuntimeProjectShortcut[], baseLabel: string): string {
@@ -311,6 +406,7 @@ export function RuntimeSettingsDialog({
 	const copiedVariableResetTimerRef = useRef<number | null>(null);
 	const shortcutsSectionRef = useRef<HTMLHeadingElement | null>(null);
 	const shortcutRowRefs = useRef<Array<HTMLDivElement | null>>([]);
+	const pushNotifications = usePushNotifications({ workspaceId });
 	const controlsDisabled = isLoading || isSaving || config === null;
 	const commitPromptTemplateDefault = config?.commitPromptTemplateDefault ?? "";
 	const openPrPromptTemplateDefault = config?.openPrPromptTemplateDefault ?? "";
@@ -740,6 +836,14 @@ export function RuntimeSettingsDialog({
 						/>
 					) : null}
 				</div>
+
+				<PushNotificationSettings
+					state={pushNotifications.state}
+					error={pushNotifications.error}
+					onSubscribe={pushNotifications.subscribe}
+					onUnsubscribe={pushNotifications.unsubscribe}
+					disabled={controlsDisabled}
+				/>
 
 				<h5 className="font-semibold text-text-primary mt-4 mb-0">Project</h5>
 				<p
