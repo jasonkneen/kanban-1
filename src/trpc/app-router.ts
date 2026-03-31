@@ -483,6 +483,21 @@ const localOnlyMiddleware = t.middleware(({ ctx, next }) => {
 
 const localOnlyProcedure = t.procedure.use(localOnlyMiddleware);
 
+// Allows localhost OR authenticated admin-role users.
+// Used for user/device management so remote admins can manage users.
+const adminOrLocalProcedure = t.procedure.use(
+	t.middleware(({ ctx, next }) => {
+		if (isLocalRequest(ctx.req)) return next({ ctx });
+		if (!ctx.caller) {
+			throw new TRPCError({ code: "UNAUTHORIZED", message: "You must be signed in." });
+		}
+		if (ctx.caller.role !== "admin") {
+			throw new TRPCError({ code: "FORBIDDEN", message: "This operation requires admin access." });
+		}
+		return next({ ctx });
+	}),
+);
+
 // Blocks "viewer" role callers from performing write operations.
 // Admins (localhost) and editors can pass through.
 // Read-only procedures (queries) should NOT use this — viewers can still read.
@@ -1068,12 +1083,12 @@ export const runtimeAppRouter = t.router({
 		}),
 
 		// Lists all active remote sessions (for the management UI).
-		listSessions: localOnlyProcedure.query(({ ctx }) => {
+		listSessions: adminOrLocalProcedure.query(({ ctx }) => {
 			return { sessions: ctx.remoteAuth.listSessions() };
 		}),
 
 		// Revokes a specific session by ID.
-		revokeSession: localOnlyProcedure.input(z.object({ sessionId: z.string() })).mutation(({ input, ctx }) => {
+		revokeSession: adminOrLocalProcedure.input(z.object({ sessionId: z.string() })).mutation(({ input, ctx }) => {
 			ctx.remoteAuth.revokeSession(input.sessionId);
 			return { ok: true };
 		}),
@@ -1126,12 +1141,12 @@ export const runtimeAppRouter = t.router({
 				}),
 
 			// Admin: list every subscription across all users.
-			listAllSubscriptions: localOnlyProcedure
+			listAllSubscriptions: adminOrLocalProcedure
 				.output(runtimePushListSubscriptionsResponseSchema)
 				.query(({ ctx }) => ({ subscriptions: ctx.pushManager.listAllSubscriptions() })),
 
 			// Admin: forcibly remove any subscription by ID.
-			removeSubscription: localOnlyProcedure
+			removeSubscription: adminOrLocalProcedure
 				.input(z.object({ subscriptionId: z.string() }))
 				.output(z.object({ ok: z.boolean() }))
 				.mutation(({ ctx, input }) => {
@@ -1146,7 +1161,7 @@ export const runtimeAppRouter = t.router({
 		// Manage remote users and their permission levels.
 		users: t.router({
 			// List all users who have ever connected, with their current role and session count.
-			list: localOnlyProcedure.output(runtimeRemoteUsersListResponseSchema).query(({ ctx }) => {
+			list: adminOrLocalProcedure.output(runtimeRemoteUsersListResponseSchema).query(({ ctx }) => {
 				const users = ctx.remoteAuth.listUsers();
 				const sessions = ctx.remoteAuth.listSessions();
 				const sessionCountByUuid = new Map<string, number>();
@@ -1163,7 +1178,7 @@ export const runtimeAppRouter = t.router({
 			}),
 
 			// Promote or demote a user's role.
-			setRole: localOnlyProcedure
+			setRole: adminOrLocalProcedure
 				.input(runtimeRemoteUsersSetRoleRequestSchema)
 				.output(runtimeRemoteOkResponseSchema)
 				.mutation(({ ctx, input }) => {
@@ -1172,7 +1187,7 @@ export const runtimeAppRouter = t.router({
 				}),
 
 			// Block a user: reset to viewer and revoke all their sessions immediately.
-			block: localOnlyProcedure
+			block: adminOrLocalProcedure
 				.input(runtimeRemoteUsersBlockRequestSchema)
 				.output(runtimeRemoteOkResponseSchema)
 				.mutation(({ ctx, input }) => {
@@ -1181,7 +1196,7 @@ export const runtimeAppRouter = t.router({
 				}),
 
 			// Trust a user: promote to editor (shortcut for setRole with editor).
-			trust: localOnlyProcedure
+			trust: adminOrLocalProcedure
 				.input(z.object({ uuid: z.string() }))
 				.output(runtimeRemoteOkResponseSchema)
 				.mutation(({ ctx, input }) => {
@@ -1194,7 +1209,7 @@ export const runtimeAppRouter = t.router({
 		// Each active browser session represents a "device" connection.
 		devices: t.router({
 			// List all active sessions across all users.
-			list: localOnlyProcedure.output(runtimeRemoteDevicesListResponseSchema).query(({ ctx }) => {
+			list: adminOrLocalProcedure.output(runtimeRemoteDevicesListResponseSchema).query(({ ctx }) => {
 				const sessions = ctx.remoteAuth.listSessions();
 				return {
 					sessions: sessions.map((s) => ({
@@ -1213,7 +1228,7 @@ export const runtimeAppRouter = t.router({
 			}),
 
 			// Revoke a specific session — forces the device to re-authenticate.
-			revoke: localOnlyProcedure
+			revoke: adminOrLocalProcedure
 				.input(runtimeRemoteDevicesRevokeRequestSchema)
 				.output(runtimeRemoteOkResponseSchema)
 				.mutation(({ ctx, input }) => {
@@ -1227,7 +1242,7 @@ export const runtimeAppRouter = t.router({
 		// Installs cloudflared automatically if not present.
 		tunnel: t.router({
 			// Returns current tunnel state without starting anything.
-			status: localOnlyProcedure.output(runtimeTunnelStatusResponseSchema).query(() => ({
+			status: adminOrLocalProcedure.output(runtimeTunnelStatusResponseSchema).query(() => ({
 				running: getTunnelUrl() !== null,
 				url: getTunnelUrl(),
 			})),
@@ -1235,7 +1250,7 @@ export const runtimeAppRouter = t.router({
 			// Installs cloudflared if needed, then opens a quick tunnel.
 			// Resolves when the public URL is ready (up to ~30s).
 			// `port` defaults to the Kanban server port if omitted.
-			start: localOnlyProcedure
+			start: adminOrLocalProcedure
 				.input(z.object({ port: z.number().int().min(1).max(65535) }))
 				.output(runtimeTunnelStartResponseSchema)
 				.mutation(async ({ input }) => {
@@ -1249,7 +1264,7 @@ export const runtimeAppRouter = t.router({
 				}),
 
 			// Stops the running tunnel.
-			stop: localOnlyProcedure.output(runtimeTunnelStopResponseSchema).mutation(async () => {
+			stop: adminOrLocalProcedure.output(runtimeTunnelStopResponseSchema).mutation(async () => {
 				await stopCloudflaredTunnel();
 				return { ok: true };
 			}),
