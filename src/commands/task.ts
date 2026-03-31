@@ -865,15 +865,12 @@ function parseOptionalBooleanOption(value: unknown, flagName: string): boolean |
 async function runTaskCommand(handler: () => Promise<JsonRecord>): Promise<void> {
 	try {
 		printJson(await handler());
-		// biome-ignore plugin: task commands must force-exit to prevent open HTTP keep-alive sockets from blocking process exit
-		process.exit(0);
 	} catch (error) {
 		printJson({
 			ok: false,
 			error: `Task command failed at ${getKanbanRuntimeOrigin()}: ${toErrorMessage(error)}`,
 		});
-		// biome-ignore plugin: task commands must force-exit to prevent open HTTP keep-alive sockets from blocking process exit
-		process.exit(1);
+		process.exitCode = 1;
 	}
 }
 
