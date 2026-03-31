@@ -410,11 +410,19 @@ export function createLoginHandler(deps: CreateLoginHandlerDependencies): LoginH
 						displayName: resolvedDisplayName,
 						persistent: false,
 					});
-					res.writeHead(302, {
-						Location: "/",
+					// Use an HTML redirect page instead of a 302 so the cookie is
+					// reliably set before navigation, even when the browser is
+					// simultaneously handling a vscode:// protocol redirect from Cline.
+					const html = `<!doctype html><html><head><meta charset="UTF-8">
+<script>window.location.replace("/");</script>
+<style>body{background:#1F2428;color:#8B949E;font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;font-size:14px;}</style>
+</head><body>Signing you in to Kanban…</body></html>`;
+					res.writeHead(200, {
+						"Content-Type": "text/html; charset=utf-8",
 						"Set-Cookie": cookie,
+						"Cache-Control": "no-store",
 					});
-					res.end();
+					res.end(html);
 					return;
 				}
 

@@ -1,9 +1,14 @@
-import { readdir } from "node:fs/promises";
+import { execSync } from "node:child_process";
+import { mkdir, readdir } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 
 import type {
 	RuntimeBoardData,
+	RuntimeCloneRepositoryRequest,
+	RuntimeCloneRepositoryResponse,
+	RuntimeCreateDirectoryRequest,
+	RuntimeCreateDirectoryResponse,
 	RuntimeDirectoryListRequest,
 	RuntimeDirectoryListResponse,
 	RuntimeProjectAddResponse,
@@ -231,6 +236,44 @@ export function createProjectsApi(deps: CreateProjectsApiDependencies): RuntimeT
 					path: null,
 					error: message,
 				};
+			}
+		},
+
+		createDirectory: async (input: RuntimeCreateDirectoryRequest): Promise<RuntimeCreateDirectoryResponse> => {
+			try {
+				const targetPath = resolve(input.path.trim());
+				await mkdir(targetPath, { recursive: true });
+				return { ok: true, path: targetPath };
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				return { ok: false, error: message };
+			}
+		},
+
+		cloneRepository: async (input: RuntimeCloneRepositoryRequest): Promise<RuntimeCloneRepositoryResponse> => {
+			try {
+				// Determine target directory name from URL if not provided.
+				const repoName =
+					input.name?.trim() ||
+					basename(
+						input.url
+							.trim()
+							.replace(/\.git$/, "")
+							.replace(/\/$/, ""),
+					);
+				if (!repoName) {
+					return { ok: false, error: "Could not determine repository name from URL." };
+				}
+				const targetPath = resolve(join(input.parentPath.trim(), repoName));
+				execSync(`git clone ${JSON.stringify(input.url.trim())} ${JSON.stringify(targetPath)}`, {
+					cwd: input.parentPath.trim(),
+					stdio: "pipe",
+					timeout: 120_000,
+				});
+				return { ok: true, path: targetPath };
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				return { ok: false, error: message };
 			}
 		},
 

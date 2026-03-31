@@ -488,6 +488,34 @@ export const runtimeProjectRemoveResponseSchema = z.object({
 });
 export type RuntimeProjectRemoveResponse = z.infer<typeof runtimeProjectRemoveResponseSchema>;
 
+// Create a new directory on the server filesystem.
+export const runtimeCreateDirectoryRequestSchema = z.object({
+	path: z.string(), // Absolute path of the directory to create.
+});
+export type RuntimeCreateDirectoryRequest = z.infer<typeof runtimeCreateDirectoryRequestSchema>;
+
+export const runtimeCreateDirectoryResponseSchema = z.object({
+	ok: z.boolean(),
+	path: z.string().optional(), // Resolved absolute path of the created directory.
+	error: z.string().optional(),
+});
+export type RuntimeCreateDirectoryResponse = z.infer<typeof runtimeCreateDirectoryResponseSchema>;
+
+// Clone a git repository into a new directory.
+export const runtimeCloneRepositoryRequestSchema = z.object({
+	url: z.string(), // Git URL to clone.
+	parentPath: z.string(), // Directory in which to create the cloned folder.
+	name: z.string().optional(), // Target folder name; defaults to the repo name from the URL.
+});
+export type RuntimeCloneRepositoryRequest = z.infer<typeof runtimeCloneRepositoryRequestSchema>;
+
+export const runtimeCloneRepositoryResponseSchema = z.object({
+	ok: z.boolean(),
+	path: z.string().optional(), // Absolute path of the cloned repository.
+	error: z.string().optional(),
+});
+export type RuntimeCloneRepositoryResponse = z.infer<typeof runtimeCloneRepositoryResponseSchema>;
+
 export const runtimeWorktreeEnsureRequestSchema = z.object({
 	taskId: z.string(),
 	baseRef: z.string(),

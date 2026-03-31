@@ -147,6 +147,10 @@ import type {
 	RuntimeWorktreeEnsureResponse,
 } from "../core/api-contract";
 import {
+	type RuntimeCloneRepositoryRequest,
+	type RuntimeCloneRepositoryResponse,
+	type RuntimeCreateDirectoryRequest,
+	type RuntimeCreateDirectoryResponse,
 	type RuntimeDirectoryListRequest,
 	type RuntimeDirectoryListResponse,
 	runtimeClineAccountProfileResponseSchema,
@@ -166,10 +170,14 @@ import {
 	runtimeClineProviderModelsResponseSchema,
 	runtimeClineProviderSettingsSaveRequestSchema,
 	runtimeClineProviderSettingsSaveResponseSchema,
+	runtimeCloneRepositoryRequestSchema,
+	runtimeCloneRepositoryResponseSchema,
 	runtimeCommandRunRequestSchema,
 	runtimeCommandRunResponseSchema,
 	runtimeConfigResponseSchema,
 	runtimeConfigSaveRequestSchema,
+	runtimeCreateDirectoryRequestSchema,
+	runtimeCreateDirectoryResponseSchema,
 	runtimeDebugResetAllStateResponseSchema,
 	runtimeDirectoryListRequestSchema,
 	runtimeDirectoryListResponseSchema,
@@ -415,6 +423,8 @@ export interface RuntimeTrpcContext {
 		) => Promise<RuntimeProjectRemoveResponse>;
 		pickProjectDirectory: (preferredWorkspaceId: string | null) => Promise<RuntimeProjectDirectoryPickerResponse>;
 		listDirectory: (input: RuntimeDirectoryListRequest) => Promise<RuntimeDirectoryListResponse>;
+		createDirectory: (input: RuntimeCreateDirectoryRequest) => Promise<RuntimeCreateDirectoryResponse>;
+		cloneRepository: (input: RuntimeCloneRepositoryRequest) => Promise<RuntimeCloneRepositoryResponse>;
 	};
 	hooksApi: {
 		ingest: (input: RuntimeHookIngestRequest) => Promise<RuntimeHookIngestResponse>;
@@ -872,6 +882,20 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeDirectoryListResponseSchema)
 			.query(async ({ ctx, input }) => {
 				return await ctx.projectsApi.listDirectory(input);
+			}),
+		// Create a new directory (used by the folder picker "Create Folder" button).
+		createDirectory: t.procedure
+			.input(runtimeCreateDirectoryRequestSchema)
+			.output(runtimeCreateDirectoryResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.projectsApi.createDirectory(input);
+			}),
+		// Clone a git repository into a subdirectory of the given parent path.
+		cloneRepository: t.procedure
+			.input(runtimeCloneRepositoryRequestSchema)
+			.output(runtimeCloneRepositoryResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.projectsApi.cloneRepository(input);
 			}),
 	}),
 	hooks: t.router({
