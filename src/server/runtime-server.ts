@@ -446,9 +446,19 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				if (!session) {
 					const acceptsHtml = (req.headers.accept ?? "").includes("text/html");
 					if (acceptsHtml) {
-						// Serve the SPA — it will call /login/me, get 401, and show the login page.
-						res.writeHead(302, { Location: "/" });
-						res.end();
+						// Serve the SPA directly with 200 — no redirect.
+						// useAuthGate in the SPA will call /login/me, get 401, and render the login page.
+						// A redirect back to "/" would cause an infinite loop since "/" is also gated.
+						try {
+							const asset = await readAsset(webUiDir, "/index.html");
+							res.writeHead(200, {
+								"Content-Type": "text/html; charset=utf-8",
+								"Cache-Control": "no-store",
+							});
+							res.end(asset.content);
+						} catch {
+							jsonResponse(res, 401, { error: "Unauthorized." });
+						}
 					} else {
 						jsonResponse(res, 401, { error: "Unauthorized." });
 					}
