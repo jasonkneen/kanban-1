@@ -803,6 +803,7 @@ export default function App({ identity = null }: { identity?: AuthIdentity | nul
 					isTerminalOpen={selectedCard ? isDetailTerminalOpen : showHomeBottomTerminal}
 					isTerminalLoading={selectedCard ? isDetailTerminalStarting : isHomeTerminalStarting}
 					onOpenSettings={handleOpenSettings}
+					isAdmin={identity?.role === "admin" || identity?.isLocal === true}
 					showDebugButton={debugModeEnabled}
 					onOpenDebugDialog={debugModeEnabled ? handleOpenDebugDialog : undefined}
 					shortcuts={shortcuts}

@@ -75,7 +75,7 @@ const GIT_PROMPT_VARIANT_OPTIONS: Array<{ value: TaskGitAction; label: string }>
 	{ value: "pr", label: "Make PR" },
 ];
 
-export type RuntimeSettingsSection = "shortcuts";
+export type RuntimeSettingsSection = "shortcuts" | "users";
 
 const SETTINGS_AGENT_ORDER: readonly RuntimeAgentId[] = ["cline", "claude", "codex", "droid"];
 
@@ -383,7 +383,13 @@ interface ManagedUser {
 	activeSessions: number;
 }
 
-function UserPermissionsSection({ workspaceId }: { workspaceId: string | null }): React.ReactElement {
+function UserPermissionsSection({
+	workspaceId,
+	sectionRef,
+}: {
+	workspaceId: string | null;
+	sectionRef?: React.RefObject<HTMLHeadingElement>;
+}): React.ReactElement {
 	const [users, setUsers] = useState<ManagedUser[]>([]);
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -453,7 +459,9 @@ function UserPermissionsSection({ workspaceId }: { workspaceId: string | null })
 	return (
 		<div className="mt-4">
 			<div className="flex items-center justify-between mb-2">
-				<h5 className="font-semibold text-text-primary m-0">Users</h5>
+				<h5 ref={sectionRef} className="font-semibold text-text-primary m-0">
+					Users
+				</h5>
 				<button
 					type="button"
 					className="text-xs text-text-tertiary hover:text-text-secondary transition-colors"
@@ -562,7 +570,8 @@ export function RuntimeSettingsDialog({
 	const [saveError, setSaveError] = useState<string | null>(null);
 	const [pendingShortcutScrollIndex, setPendingShortcutScrollIndex] = useState<number | null>(null);
 	const copiedVariableResetTimerRef = useRef<number | null>(null);
-	const shortcutsSectionRef = useRef<HTMLHeadingElement | null>(null);
+	const shortcutsSectionRef = useRef<HTMLHeadingElement>(null);
+	const usersSectionRef = useRef<HTMLHeadingElement>(null);
 	const shortcutRowRefs = useRef<Array<HTMLDivElement | null>>([]);
 	const controlsDisabled = isLoading || isSaving || config === null;
 	const commitPromptTemplateDefault = config?.commitPromptTemplateDefault ?? "";
@@ -721,6 +730,18 @@ export function RuntimeSettingsDialog({
 		const timeout = window.setTimeout(() => {
 			shortcutsSectionRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
 		}, 500);
+		return () => {
+			window.clearTimeout(timeout);
+		};
+	}, [initialSection, open]);
+
+	useEffect(() => {
+		if (!open || initialSection !== "users") {
+			return;
+		}
+		const timeout = window.setTimeout(() => {
+			usersSectionRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+		}, 300);
 		return () => {
 			window.clearTimeout(timeout);
 		};
@@ -1063,7 +1084,10 @@ export function RuntimeSettingsDialog({
 
 				{/* User permissions — visible to admins and localhost users only */}
 				{identity && (identity.role === "admin" || identity.isLocal) ? (
-					<UserPermissionsSection workspaceId={workspaceId} />
+					<>
+						<div className="mt-5 border-t border-border" />
+						<UserPermissionsSection workspaceId={workspaceId} sectionRef={usersSectionRef} />
+					</>
 				) : null}
 
 				<h5 className="font-semibold text-text-primary mt-4 mb-0">Project</h5>

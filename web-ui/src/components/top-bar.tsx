@@ -15,6 +15,7 @@ import {
 	Plus,
 	Settings,
 	Terminal,
+	Users,
 } from "lucide-react";
 import { useState } from "react";
 import { OpenWorkspaceButton } from "@/components/open-workspace-button";
@@ -40,7 +41,7 @@ import type { OpenTargetId, OpenTargetOption } from "@/utils/open-targets";
 import { formatPathForDisplay } from "@/utils/path-display";
 import { isMacPlatform } from "@/utils/platform";
 
-type SettingsSection = "shortcuts";
+type SettingsSection = "shortcuts" | "users";
 type CreateShortcutResult = { ok: boolean; message?: string };
 
 function getWorkspacePathSegments(path: string): string[] {
@@ -296,6 +297,7 @@ export function TopBar({
 	onToggleGitHistory,
 	isGitHistoryOpen,
 	onOpenSettings,
+	isAdmin = false,
 	showDebugButton,
 	onOpenDebugDialog,
 	shortcuts,
@@ -330,6 +332,7 @@ export function TopBar({
 	onToggleGitHistory?: () => void;
 	isGitHistoryOpen?: boolean;
 	onOpenSettings?: (section?: SettingsSection) => void;
+	isAdmin?: boolean;
 	showDebugButton?: boolean;
 	onOpenDebugDialog?: () => void;
 	shortcuts?: RuntimeProjectShortcut[];
@@ -634,6 +637,21 @@ export function TopBar({
 							) : null}
 						</>
 					)}
+
+					{/* Users button — admin only */}
+					{isAdmin ? (
+						<Tooltip content="Manage users">
+							<Button
+								variant="ghost"
+								size="sm"
+								icon={<Users size={16} />}
+								onClick={() => onOpenSettings?.("users")}
+								aria-label="Manage users"
+								data-testid="open-users-button"
+								className={cn("ml-0.5 mr-0.5", isMobile && "min-w-[44px] min-h-[44px]")}
+							/>
+						</Tooltip>
+					) : null}
 
 					{/* Settings button — always visible */}
 					<Button
