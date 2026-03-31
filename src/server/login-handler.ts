@@ -20,7 +20,7 @@ import { getSdkProviderSettings } from "../cline-sdk/sdk-provider-boundary";
 import { getKanbanRuntimeOrigin } from "../core/runtime-endpoint";
 import { loadRemoteConfig } from "../remote/config-store";
 import type { CallerIdentity } from "../remote/types";
-import { consumePendingToken, getCurrentPendingToken, startClineOAuth } from "./cline-oauth";
+import { consumePendingToken, getCurrentPendingToken } from "./cline-oauth";
 import type { RemoteAuth } from "./remote-auth";
 import { isLocalRequest } from "./remote-auth";
 
@@ -315,25 +315,26 @@ export function createLoginHandler(deps: CreateLoginHandlerDependencies): LoginH
 				}
 
 				// ── GET /auth/start ──────────────────────────────────────────
-				// Starts the Cline OAuth flow using a temporary local callback
-				// server (same mechanism as MCP OAuth). No vscode:// trigger.
+				// Redirects the browser to the Cline/WorkOS authorize URL.
+				// Uses client_type=extension so the Cline backend sends the
+				// token to our callback_url. VS Code may also open — this is
+				// a known limitation until client_type=kanban is added upstream.
+				// The callback_url is built from the ?origin= param sent by the
+				// frontend (window.location.origin) so it works on any host.
 				if (method === "GET" && pathname === "/auth/start") {
-					try {
-						// Use the origin the browser passed (window.location.origin from the login page).
-						// Falls back to the Host header then the runtime origin.
-						const hostHeader = req.headers.host?.trim();
-						const scheme = req.headers["x-forwarded-proto"]?.toString().split(",")[0]?.trim() ?? "http";
-						const requestedOrigin = url.searchParams.get("origin")?.trim();
-						const kanbanOrigin =
-							requestedOrigin || (hostHeader ? `${scheme}://${hostHeader}` : getKanbanRuntimeOrigin());
+					const hostHeader = req.headers.host?.trim();
+					const scheme = req.headers["x-forwarded-proto"]?.toString().split(",")[0]?.trim() ?? "http";
+					const requestedOrigin = url.searchParams.get("origin")?.trim();
+					const kanbanOrigin =
+						requestedOrigin || (hostHeader ? `${scheme}://${hostHeader}` : getKanbanRuntimeOrigin());
 
-						const authorizeUrl = await startClineOAuth(remoteAuth, kanbanOrigin);
-						res.writeHead(302, { Location: authorizeUrl });
-						res.end();
-					} catch (err) {
-						const message = err instanceof Error ? err.message : String(err);
-						json(res, 500, { error: `Failed to start OAuth: ${message}` });
-					}
+					const callbackUrl = `${kanbanOrigin.replace(/\/$/, "")}/auth/callback`;
+					const authorizeUrl = new URL(`${CLINE_API_BASE}/api/v1/auth/authorize`);
+					authorizeUrl.searchParams.set("client_type", "extension");
+					authorizeUrl.searchParams.set("callback_url", callbackUrl);
+					authorizeUrl.searchParams.set("redirect_uri", callbackUrl);
+					res.writeHead(302, { Location: authorizeUrl.toString() });
+					res.end();
 					return;
 				}
 

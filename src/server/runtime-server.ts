@@ -30,7 +30,6 @@ import { createProjectsApi } from "../trpc/projects-api";
 import { createRuntimeApi } from "../trpc/runtime-api";
 import { createWorkspaceApi } from "../trpc/workspace-api";
 import { getWebUiDir, normalizeRequestPath, readAsset } from "./assets";
-import { patchSdkSuccessHtml } from "./cline-oauth";
 import { createLoginHandler } from "./login-handler";
 import { createRemoteAuth, isLocalRequest } from "./remote-auth";
 import type { RuntimeStateHub } from "./runtime-state-hub";
@@ -102,11 +101,6 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 
 	// Initialise remote auth (opens/creates the SQLite DB, loads signing secret).
 	const remoteAuth = await createRemoteAuth();
-
-	// Patch the Cline SDK's OAuth success HTML to redirect to /auth/finalize
-	// instead of trying to close the window. This enables the server-side
-	// OAuth flow to redirect the browser back into Kanban after auth.
-	patchSdkSuccessHtml(getKanbanRuntimeOrigin());
 
 	const loginHandler = createLoginHandler({
 		remoteAuth,
