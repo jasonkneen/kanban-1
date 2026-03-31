@@ -71,6 +71,7 @@ export function BoardCardTeammates({ teammates, sessionsByTaskId }: BoardCardTea
 							? `${teammate.role.slice(0, 40)}…`
 							: teammate.role
 						: teammate.id;
+					const agentLabel = session?.agentId ?? null;
 
 					return (
 						<div key={teammate.id} className="flex items-center gap-1.5 min-w-0">
@@ -83,14 +84,24 @@ export function BoardCardTeammates({ teammates, sessionsByTaskId }: BoardCardTea
 									marginTop: 1,
 								}}
 							/>
+							<div className="flex flex-col flex-1 min-w-0">
+								<span
+									className="text-text-secondary truncate"
+									style={{ fontSize: 11 }}
+								>
+									{roleLabel}
+								</span>
+								{agentLabel ? (
+									<span
+										className="text-text-tertiary truncate"
+										style={{ fontSize: 10 }}
+									>
+										{agentLabel}
+									</span>
+								) : null}
+							</div>
 							<span
-								className="text-text-secondary text-xs truncate flex-1 min-w-0"
-								style={{ fontSize: 11 }}
-							>
-								{roleLabel}
-							</span>
-							<span
-								className="text-text-tertiary text-xs shrink-0"
+								className="text-text-tertiary shrink-0"
 								style={{ fontSize: 11, color: dotColor }}
 							>
 								{statusText}
