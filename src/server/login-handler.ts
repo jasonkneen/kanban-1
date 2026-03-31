@@ -18,6 +18,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 
 import { getSdkProviderSettings } from "../cline-sdk/sdk-provider-boundary";
 import { loadRemoteConfig } from "../remote/config-store";
+import type { CallerIdentity } from "../remote/types";
 import type { RemoteAuth } from "./remote-auth";
 import { isLocalRequest } from "./remote-auth";
 
@@ -26,6 +27,10 @@ const WORKOS_PREFIX = "workos:";
 
 export interface CreateLoginHandlerDependencies {
 	remoteAuth: RemoteAuth;
+	// The resolved identity of the local machine user.
+	// When present, /login/me returns this identity for localhost requests
+	// instead of checking the session cookie (localhost has no cookie).
+	getLocalCaller: () => CallerIdentity | null;
 }
 
 export interface LoginHandler {
@@ -33,7 +38,7 @@ export interface LoginHandler {
 }
 
 export function createLoginHandler(deps: CreateLoginHandlerDependencies): LoginHandler {
-	const { remoteAuth } = deps;
+	const { remoteAuth, getLocalCaller } = deps;
 
 	function json(res: ServerResponse, status: number, body: unknown): void {
 		const payload = JSON.stringify(body);
@@ -122,13 +127,47 @@ export function createLoginHandler(deps: CreateLoginHandlerDependencies): LoginH
 
 				// ── GET /login/me ───────────────────────────────────────────
 				if (method === "GET" && pathname === "/login/me") {
+					// Localhost: return the local machine's caller identity directly.
+					// No session cookie exists for local users — they bypass the auth gate.
+					if (isLocalRequest(req)) {
+						const localCaller = getLocalCaller();
+						if (localCaller) {
+							json(res, 200, {
+								email: localCaller.email,
+								displayName: localCaller.displayName,
+								userId: null,
+								persistent: false,
+								role: localCaller.role,
+								isLocal: true,
+							});
+						} else {
+							// Local user with no Cline account signed in — still authenticated.
+							json(res, 200, {
+								email: "local",
+								displayName: "Local User",
+								userId: null,
+								persistent: false,
+								role: "admin",
+								isLocal: true,
+							});
+						}
+						return;
+					}
+					// Remote: validate session cookie.
 					const session = await remoteAuth.validateSession(req.headers.cookie ?? "");
 					if (!session) {
 						json(res, 401, { error: "Not authenticated." });
 						return;
 					}
 					await remoteAuth.touchSession(session.sessionId);
-					json(res, 200, { email: session.email, userId: session.userId, persistent: session.persistent });
+					json(res, 200, {
+						email: session.email,
+						displayName: session.displayName,
+						userId: session.userId,
+						persistent: session.persistent,
+						role: session.role,
+						isLocal: false,
+					});
 					return;
 				}
 

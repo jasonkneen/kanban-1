@@ -101,7 +101,10 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 
 	// Initialise remote auth (opens/creates the SQLite DB, loads signing secret).
 	const remoteAuth = await createRemoteAuth();
-	const loginHandler = createLoginHandler({ remoteAuth });
+	const loginHandler = createLoginHandler({
+		remoteAuth,
+		getLocalCaller: () => localCaller,
+	});
 
 	// Resolve the localhost user's identity from the stored Cline account credentials.
 	// Awaited before the server starts so the first request always has caller context.
@@ -415,28 +418,36 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 			const requestUrl = new URL(req.url ?? "/", "http://localhost");
 			const pathname = normalizeRequestPath(requestUrl.pathname);
 
+			// ── Login/auth routes — always handled regardless of origin ─────────
+			// These routes must be reachable before any auth check so that:
+			//   - Remote clients can log in and get a session cookie.
+			//   - Both localhost and remote clients can call /login/me and
+			//     /login/config (used by useAuthGate and the login page).
+			const isLoginRoute =
+				pathname === "/login/me" ||
+				pathname === "/login/config" ||
+				pathname === "/login/cline" ||
+				pathname === "/login/cline-autodetect" ||
+				pathname === "/login/password" ||
+				pathname === "/logout" ||
+				pathname === "/auth/start" ||
+				pathname === "/auth/callback";
+
+			if (isLoginRoute) {
+				await loginHandler.handle(req, res);
+				return;
+			}
+
 			// ── Auth gate ─────────────────────────────────────────────────────
 			// Localhost connections bypass auth entirely.
-			// Login/auth/logout routes are always reachable (needed to obtain a session).
 			// All other remote requests require a valid session cookie.
 			if (!isLocalRequest(req)) {
-				const isAuthRoute =
-					pathname === "/login" ||
-					pathname.startsWith("/login/") ||
-					pathname === "/logout" ||
-					pathname === "/auth/start" ||
-					pathname === "/auth/callback";
-
-				if (isAuthRoute) {
-					await loginHandler.handle(req, res);
-					return;
-				}
-
 				const session = await remoteAuth.validateSession(req.headers.cookie ?? "");
 				if (!session) {
 					const acceptsHtml = (req.headers.accept ?? "").includes("text/html");
 					if (acceptsHtml) {
-						res.writeHead(302, { Location: "/login" });
+						// Serve the SPA — it will call /login/me, get 401, and show the login page.
+						res.writeHead(302, { Location: "/" });
 						res.end();
 					} else {
 						jsonResponse(res, 401, { error: "Unauthorized." });
