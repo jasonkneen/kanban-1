@@ -1,53 +1,252 @@
-# Desktop App E2E Test Tasks
+# Desktop App E2E Test Harness Implementation Plan
 
-This document turns the desktop-app branch verification work into concrete, implementable **red-green TDD task cards**.
+This document reframes the desktop E2E work into an **implementable execution plan** for building and rolling out a real Electron test harness for the new Kanban desktop app.
 
-The goal is to prove the claims in `docs/desktop-app-branch-summary.md` with automated coverage wherever practical, and to clearly separate:
+It intentionally focuses on what we can build next in `packages/desktop/` with the current codebase, where the harness needs explicit seams, and how to phase the work so we get useful confidence quickly without introducing a flaky or over-scoped test system.
 
-- tests that can be added immediately with the current harness,
-- tests that require a new Electron Playwright harness,
-- tests that should stay integration/unit level,
-- and tests that likely remain manual or CI smoke checks.
+Related context:
 
----
-
-## Overall strategy
-
-### First principle
-The **first missing foundation** is an Electron Playwright harness in `packages/desktop/`.
-
-Without that harness, we cannot automatically prove packaged desktop claims like:
-
-- the app launches without requiring terminal startup,
-- the Electron shell starts and manages the runtime child,
-- BrowserWindow-authenticated requests succeed while unauthenticated requests fail,
-- connection switching works through the desktop shell,
-- diagnostics reflect desktop runtime state.
-
-So the task order is:
-
-1. Add Electron Playwright harness
-2. Add Electron E2E tests on top of that harness
-3. Fill gaps in CLI/integration/unit coverage that do not need Electron
-4. Add CI packaged smoke where feasible
+- `packages/desktop/docs/hardening-implementation-plan.md`
+- `/Users/johnchoi1/Documents/desktop-app-runtime-architecture.md`
+- `docs/desktop-app-branch-summary.md`
 
 ---
 
-## Task 1 — Add Playwright Electron E2E harness + smoke test
+## Objective
+
+Build a Playwright-driven Electron E2E harness that can launch the real desktop app, observe the desktop-managed runtime, and verify the highest-risk claims of the new architecture:
+
+1. the Electron shell launches successfully,
+2. it starts and manages its own runtime child,
+3. BrowserWindow-authenticated requests succeed while unauthenticated requests fail,
+4. local connection persistence and restore behavior work,
+5. diagnostics and disconnect UX reflect actual desktop runtime state,
+6. the harness is stable enough to run in CI and later extend to packaged smoke coverage.
+
+---
+
+## Constraints from the current implementation
+
+These are the practical constraints the harness must respect.
+
+### 1. Desktop startup is real Electron startup
+
+The app entrypoint is `packages/desktop/src/main.ts`, compiled to `dist/main.js`, and `package.json` already uses:
+
+- `"main": "dist/main.js"`
+- `"build:ts"` to compile the main process and bundle the preload script
+
+That means the first harness should launch the compiled app entrypoint, not invent a fake bootstrap path.
+
+### 2. Runtime startup currently happens through `ConnectionManager`
+
+The real local boot path is not in a special E2E-only launcher. It happens through:
+
+- `ConnectionStore`
+- `ConnectionManager.initialize()`
+- `RuntimeChildManager.start()`
+- `BrowserWindow.loadURL(...)`
+
+So the harness should assert against those behaviors indirectly through the loaded window and reachable runtime, not by mocking internals.
+
+### 3. Auth is injected at the BrowserWindow session layer
+
+Desktop auth depends on `installAuthHeaderInterceptor(...)` and BrowserWindow requests going through the Electron session. So tests must distinguish between:
+
+- requests issued from the renderer/browser context,
+- and raw direct HTTP requests made outside that context.
+
+That is essential for verifying the desktop auth model described in the architecture docs.
+
+### 4. Some current docs assume seams that do not exist yet
+
+Examples:
+
+- there is no existing `launchDesktopApp()` fixture,
+- there is no Playwright config in `packages/desktop/`,
+- there is no stable test-only hook for forcing reconnect states,
+- diagnostics can be opened via the real `open-diagnostics` IPC event from the app menu/preload path, but the harness needs a clean helper for that.
+
+So the first task is not “write many specs.” The first task is to create a **credible harness foundation**.
+
+### 5. We should avoid unnecessary production-only test hooks
+
+Per repo guidance, avoid changing product code purely to accommodate tests unless the seam is clearly justified. The harness should prefer:
+
+- real Electron launch,
+- real BrowserWindow interactions,
+- real userData persistence,
+- real runtime child lifecycle,
+- and only add narrow seams when a workflow is otherwise impossible or too flaky.
+
+---
+
+## Recommended rollout strategy
+
+Build the harness in four waves.
+
+### Wave 1 — Harness foundation
+
+Create a minimal but real Electron Playwright harness that can:
+
+- build the desktop app if needed,
+- launch Electron against `dist/main.js`,
+- isolate `userData` per test run,
+- discover the active runtime URL,
+- get the first BrowserWindow page,
+- and shut down cleanly.
+
+### Wave 2 — High-value local-mode E2E coverage
+
+Once the harness is stable, add the core local-mode E2E cases:
+
+- smoke launch,
+- runtime child lifecycle,
+- auth enforcement,
+- local connection persistence/restore,
+- diagnostics dialog.
+
+### Wave 3 — Harder stateful scenarios
+
+Add scenarios that are real but need more control or more robustness:
+
+- disconnect/reconnect behavior,
+- invalid persisted connection fallback,
+- remote connection flows,
+- restart/resume behavior.
+
+### Wave 4 — CI and packaged smoke
+
+After the dist-based harness is reliable locally/CI, expand to:
+
+- matrix CI execution,
+- packaged artifact smoke,
+- and platform-specific smoke where native packaging assumptions matter.
+
+---
+
+## Deliverable 1 — Add the Electron Playwright harness
 
 **Priority:** P0  
-**Type:** New harness  
-**Blocks:** Tasks 2, 3, 4, 5, 9, 11
+**Outcome:** A reusable, deterministic harness for launching the desktop app in tests.
 
-### Goal
-Add a Playwright-based Electron E2E harness under `packages/desktop/` so tests can launch the real desktop app and interact with its BrowserWindow.
+### Files to add
 
-### Why this exists
-`web-ui/playwright.config.ts` only launches the Vite dev server and browser UI. It does **not** exercise Electron, packaged runtime startup, BrowserWindow auth injection, app lifecycle, or connection-manager behavior.
+- `packages/desktop/playwright.config.ts`
+- `packages/desktop/e2e/fixtures.ts`
+- `packages/desktop/e2e/smoke.spec.ts`
 
-### RED phase — add failing tests first
+### Files to update
 
-Create `packages/desktop/e2e/smoke.spec.ts`:
+- `packages/desktop/package.json`
+
+### Package changes
+
+Add dev dependencies:
+
+- `@playwright/test`
+
+Add scripts:
+
+- `"e2e": "playwright test --config playwright.config.ts"`
+- optionally `"e2e:headed": "playwright test --config playwright.config.ts --headed"`
+
+### Playwright config requirements
+
+`packages/desktop/playwright.config.ts` should:
+
+- set `testDir: "./e2e"`
+- use a desktop-appropriate timeout such as `60_000`
+- run headless by default
+- avoid a `webServer` block, because Electron is launching the real app
+- keep retries conservative initially (`0` locally, CI may later override)
+- avoid adding browser projects we do not need yet
+
+### Fixture responsibilities
+
+`packages/desktop/e2e/fixtures.ts` should export a small harness API, for example:
+
+```ts
+interface LaunchedDesktopApp {
+	electronApp: ElectronApplication;
+	page: Page;
+	runtimeUrl: string;
+	userDataDir: string;
+	cleanup: () => Promise<void>;
+}
+
+export async function launchDesktopApp(): Promise<LaunchedDesktopApp>;
+```
+
+The fixture should do the following:
+
+1. Ensure the desktop TypeScript build output exists.
+   - If `dist/main.js` or `dist/preload.js` is missing, run `npm run build:ts` in `packages/desktop`.
+
+2. Create an isolated temp directory for Electron `userData`.
+   - Tests must not reuse a developer's real desktop app state.
+   - The harness should pass a dedicated env var or Chromium/Electron override that the app can honor for `userData` if supported cleanly.
+   - If the current app does not yet support deterministic userData override, adding a narrow startup seam for this is justified.
+
+3. Launch Electron through Playwright.
+
+```ts
+import { _electron as electron } from "@playwright/test";
+```
+
+Launch against the compiled entrypoint:
+
+```ts
+const electronApp = await electron.launch({
+	args: ["dist/main.js"],
+	env: {
+		...process.env,
+		NODE_ENV: "test",
+	},
+});
+```
+
+4. Wait for the first real BrowserWindow.
+
+```ts
+const page = await electronApp.firstWindow();
+```
+
+5. Discover the runtime URL in a deterministic way.
+
+Recommended order:
+
+- first, inspect the current page URL after the app loads,
+- if needed, read runtime state from Electron main-process globals via `electronApp.evaluate(...)`,
+- if neither is stable enough, add a narrow main-process helper for test introspection.
+
+The preferred approach is to avoid broad test APIs and instead derive the URL from observable app behavior.
+
+6. Wait for runtime readiness.
+
+The fixture should not assume `firstWindow()` means the runtime is ready. Add polling that waits until:
+
+- the page is on the expected runtime origin,
+- and a request like `/api/trpc/runtime.getVersion` succeeds from the renderer context.
+
+7. Return cleanup that always closes Electron and removes temp state.
+
+### Required helper utilities inside the fixture
+
+The fixture should likely include small internal helpers such as:
+
+- `ensureDesktopBuild()`
+- `waitForRuntimeUrl(page, electronApp)`
+- `waitForRuntimeReady(page, runtimeUrl)`
+- `createTempUserDataDir()`
+
+These should stay in the fixture file until reuse clearly justifies further extraction.
+
+### First spec to add
+
+`packages/desktop/e2e/smoke.spec.ts`
+
+Initial coverage should stay minimal:
 
 ```ts
 import { expect, test } from "@playwright/test";
@@ -64,180 +263,6 @@ test("desktop app launches and shows Kanban UI", async () => {
 });
 
 test("runtime becomes reachable after desktop app launch", async () => {
-	const { runtimeUrl, page, cleanup } = await launchDesktopApp();
-	try {
-		const response = await page.request.get(`${runtimeUrl}/api/trpc/runtime.getVersion`);
-		expect(response.ok()).toBe(true);
-	} finally {
-		await cleanup();
-	}
-});
-```
-
-These should fail initially because the fixture and config do not exist.
-
-### GREEN phase — implementation
-
-Add:
-
-- `@playwright/test` to `packages/desktop/devDependencies`
-- `packages/desktop/playwright.config.ts`
-- `packages/desktop/e2e/fixtures.ts`
-- `packages/desktop/e2e/smoke.spec.ts`
-- `"e2e": "playwright test --config playwright.config.ts"` to `packages/desktop/package.json`
-
-### Suggested implementation details
-
-#### `packages/desktop/playwright.config.ts`
-
-- `testDir: "./e2e"`
-- `timeout: 60_000`
-- `use: { headless: true }`
-- no `webServer` block; Electron launches the real app
-
-#### `packages/desktop/e2e/fixtures.ts`
-
-Export `launchDesktopApp()` that:
-
-1. Ensures `dist/main.js` exists, otherwise runs `npm run build:ts`
-2. Launches Electron with Playwright:
-
-```ts
-import { _electron as electron } from "@playwright/test";
-```
-
-3. Calls:
-
-```ts
-const electronApp = await electron.launch({
-	args: ["dist/main.js"],
-	env: {
-		...process.env,
-		NODE_ENV: "development",
-	},
-});
-```
-
-4. Gets the first window:
-
-```ts
-const page = await electronApp.firstWindow();
-```
-
-5. Waits for the app URL to become reachable and captures `runtimeUrl`
-6. Returns:
-
-```ts
-{
-	electronApp,
-	page,
-	runtimeUrl,
-	cleanup: async () => {
-		await electronApp.close();
-	},
-}
-```
-
-### Files to read first
-
-- `packages/desktop/package.json`
-- `packages/desktop/src/main.ts`
-- `packages/desktop/src/runtime-child-manager.ts`
-- `packages/desktop/src/preload.ts`
-
-### Verification
-
-```bash
-cd packages/desktop
-npm run e2e
-```
-
-### Scope
-
-- ONLY modify files in `packages/desktop/`
-- DO NOT modify runtime or web-ui production code
-- DO NOT commit unless explicitly asked
-
----
-
-## Task 2 — Desktop boot lifecycle E2E
-
-**Priority:** P1  
-**Type:** Electron E2E  
-**Depends on:** Task 1
-
-### Goal
-Prove the Electron desktop app starts and stops its managed runtime child correctly.
-
-### RED phase — add failing tests
-
-Create `packages/desktop/e2e/boot-lifecycle.spec.ts`:
-
-```ts
-import { expect, test } from "@playwright/test";
-import { launchDesktopApp } from "./fixtures";
-
-test("desktop app starts runtime child automatically", async () => {
-	const { page, cleanup } = await launchDesktopApp();
-	try {
-		await expect(page.getByText("Backlog", { exact: true })).toBeVisible({ timeout: 30_000 });
-		await expect(page.getByText("Disconnected from Cline")).not.toBeVisible();
-	} finally {
-		await cleanup();
-	}
-});
-
-test("closing the desktop app makes the runtime unreachable", async () => {
-	const { runtimeUrl, cleanup } = await launchDesktopApp();
-	await cleanup();
-
-	await expect
-		.poll(async () => {
-			try {
-				const response = await fetch(runtimeUrl);
-				return response.ok();
-			} catch {
-				return false;
-			}
-		})
-		.toBe(false);
-});
-```
-
-### GREEN phase
-
-No new product code should be required if runtime-child lifecycle is wired correctly. The fixture may need better readiness/wait helpers.
-
-### Code pointers
-
-- `packages/desktop/src/main.ts`
-- `packages/desktop/src/runtime-child.ts`
-- `packages/desktop/src/runtime-child-manager.ts`
-
-### Coverage claim proved
-
-- “Electron desktop app starts and manages its own Kanban runtime child process”
-
----
-
-## Task 3 — Desktop auth enforcement E2E
-
-**Priority:** P1  
-**Type:** Electron E2E  
-**Depends on:** Task 1
-
-### Goal
-Prove desktop-authenticated requests succeed while unauthenticated requests are rejected.
-
-### RED phase — add failing tests
-
-Create `packages/desktop/e2e/auth.spec.ts`:
-
-```ts
-import { expect, test } from "@playwright/test";
-import { launchDesktopApp } from "./fixtures";
-
-test("authenticated request through the desktop app succeeds", async () => {
 	const { page, runtimeUrl, cleanup } = await launchDesktopApp();
 	try {
 		const response = await page.request.get(`${runtimeUrl}/api/trpc/runtime.getVersion`);
@@ -246,555 +271,424 @@ test("authenticated request through the desktop app succeeds", async () => {
 		await cleanup();
 	}
 });
-
-test("direct unauthenticated request to runtime is rejected", async () => {
-	const { runtimeUrl, cleanup } = await launchDesktopApp();
-	try {
-		const response = await fetch(`${runtimeUrl}/api/trpc/runtime.getVersion`);
-		expect([401, 403]).toContain(response.status);
-	} finally {
-		await cleanup();
-	}
-});
 ```
 
-### GREEN phase
+### Implementation note: userData isolation
 
-May only require fixture stabilization.
+This is the biggest likely gap between the current product code and a reliable harness.
 
-### Code pointers
+`main.ts` reads and writes:
 
-- `packages/desktop/src/connection-manager.ts` — `installAuthInterceptor()`
-- `packages/desktop/src/auth.ts`
-- `src/server/auth-middleware.ts`
-- `src/server/runtime-server.ts`
+- `app.getPath("userData")` for `connections.json`
+- `app.getPath("userData")` for window state
 
-### Coverage claim proved
+The harness must avoid using the developer's real state. If Electron does not already expose a clean launch-time override for this in our setup, add one small startup seam such as:
 
-- “Desktop auth token model and runtime auth middleware are active”
+- honoring a test-only env var before first `app.getPath("userData")` access,
+- or setting the path early in startup in a production-safe way.
+
+This is a justified seam because it makes tests deterministic and prevents accidental mutation of real desktop state.
+
+### Verification
+
+```bash
+cd /Users/johnchoi1/main/kanban/packages/desktop && npm run e2e
+```
 
 ---
 
-## Task 4 — Connection management E2E
+## Deliverable 2 — Boot lifecycle E2E
 
 **Priority:** P1  
-**Type:** Electron E2E  
-**Depends on:** Task 1
+**Depends on:** Deliverable 1
 
 ### Goal
-Prove local/remote connection switching, persistence, and fallback behavior.
 
-### RED phase — add failing tests
+Prove that local desktop mode starts the runtime child automatically and tears it down on app exit.
 
-Create `packages/desktop/e2e/connection-management.spec.ts`:
+### Tests to add
 
-```ts
-import fs from "node:fs";
-import path from "node:path";
-import { expect, test } from "@playwright/test";
-import { launchDesktopApp } from "./fixtures";
+File: `packages/desktop/e2e/boot-lifecycle.spec.ts`
 
-test("default startup uses local connection", async () => {
-	const { page, cleanup } = await launchDesktopApp();
-	try {
-		expect(page.url()).toMatch(/127\.0\.0\.1|localhost/);
-	} finally {
-		await cleanup();
-	}
-});
+Add:
 
-test("connections.json persists active connection metadata", async () => {
-	const { electronApp, cleanup } = await launchDesktopApp();
-	try {
-		const userDataPath = await electronApp.evaluate(({ app }) => app.getPath("userData"));
-		const connectionsPath = path.join(userDataPath, "connections.json");
-		const raw = fs.readFileSync(connectionsPath, "utf-8");
-		const data = JSON.parse(raw) as {
-			connections: Array<{ id: string }>;
-			activeConnectionId: string;
-		};
+1. `desktop app starts runtime child automatically`
+   - launch app
+   - wait for the main board UI
+   - assert the app is not stuck in a disconnected state
 
-		const localIds = data.connections.map((connection) => connection.id);
-		expect(localIds).toContain("local");
-		expect(data.activeConnectionId).toBeTruthy();
-	} finally {
-		await cleanup();
-	}
-});
-```
+2. `closing the desktop app makes the runtime unreachable`
+   - launch app
+   - capture `runtimeUrl`
+   - call harness cleanup
+   - poll the URL until it stops responding
 
-### GREEN phase
+### Important harness requirement
 
-Likely no app changes for the initial local-connection tests. Remote-switch tests may need menu-driving helpers in the Electron harness later.
+The second test should use polling and tolerate normal shutdown latency. Do not make it assume the runtime disappears instantly.
 
-### Code pointers
+### Claims covered
 
-- `packages/desktop/src/connection-store.ts`
-- `packages/desktop/src/connection-manager.ts`
-- `packages/desktop/src/connection-menu.ts`
-- `packages/desktop/src/main.ts`
-- `packages/desktop/test/main-connection-integration.test.ts`
-
-### Follow-up expansions after first green
-
-- Add remote connection via menu dialog
-- Switch Local → Remote
-- Persist remote connection and restore on relaunch
-- Invalid saved connection falls back to Local
-- Insecure HTTP warning is shown for non-localhost remote URLs
-
-### Coverage claim proved
-
-- “ConnectionStore + ConnectionManager + persisted active connection are wired into desktop app”
+- Electron desktop app starts and manages its own Kanban runtime child process
 
 ---
 
-## Task 5 — Diagnostics dialog E2E
+## Deliverable 3 — Auth enforcement E2E
 
 **Priority:** P1  
-**Type:** Electron E2E  
-**Depends on:** Task 1
+**Depends on:** Deliverable 1
 
 ### Goal
-Prove diagnostics reflect actual connection/runtime state inside the desktop app.
 
-### RED phase — add failing tests
+Prove the desktop auth token model is active and requests are differentiated correctly.
 
-Create `packages/desktop/e2e/diagnostics.spec.ts`:
+### Tests to add
 
-```ts
-import { expect, test } from "@playwright/test";
-import { launchDesktopApp } from "./fixtures";
+File: `packages/desktop/e2e/auth.spec.ts`
 
-test("diagnostics dialog shows local connected state", async () => {
-	const { page, electronApp, cleanup } = await launchDesktopApp();
-	try {
-		await electronApp.evaluate(({ BrowserWindow }) => {
-			const win = BrowserWindow.getAllWindows()[0];
-			win?.webContents.send("open-diagnostics");
-		});
+Add:
 
-		await expect(page.getByText("Diagnostics", { exact: true })).toBeVisible();
-		await expect(page.getByText("Connection type")).toBeVisible();
-		await expect(page.getByText("Local")).toBeVisible();
-		await expect(page.getByText("Connected")).toBeVisible();
-	} finally {
-		await cleanup();
-	}
-});
-```
+1. `authenticated request through the desktop app succeeds`
+   - use `page.request` against `${runtimeUrl}/api/trpc/runtime.getVersion`
+   - expect success
 
-### GREEN phase
+2. `direct unauthenticated request to runtime is rejected`
+   - use `fetch(...)` from the Node test process, not the renderer/browser context
+   - expect `401` or `403`
 
-May require using the actual desktop diagnostics hook instead of directly sending a guessed event name, depending on current preload wiring.
+### Important implementation note
 
-### Code pointers
+This doc's earlier version assumed `page.request` automatically proves BrowserWindow auth interception. In practice, verify how Playwright issues those requests in Electron context before relying on that as the final proof. If it does not traverse the Electron session path reliably enough, prefer one of these stronger assertions:
 
-- `packages/desktop/src/preload.ts`
-- `packages/desktop/src/main.ts`
-- `web-ui/src/App.tsx`
-- `web-ui/src/hooks/use-diagnostics.ts`
-- `web-ui/src/components/diagnostics-dialog.tsx`
+- execute a renderer `fetch` from `page.evaluate(...)`, or
+- validate authenticated browser navigation/XHR from inside the loaded page.
 
-### Coverage claim proved
+The test should prove the real auth path, not just “some request worked.”
 
-- “Desktop diagnostics reflect Local/Remote state, runtime version, websocket state, auth state”
+### Claims covered
+
+- Desktop auth token model and runtime auth middleware are active
 
 ---
 
-## Task 6 — CLI bridge integration test expansion
+## Deliverable 4 — Connection persistence and default local-mode E2E
 
 **Priority:** P1  
-**Type:** Integration test  
-**Depends on:** Nothing
+**Depends on:** Deliverable 1
 
 ### Goal
-Prove runtime descriptor publishing/cleanup and desktop CLI fallback behavior without needing Electron E2E.
 
-### Why this is not Electron-only
-Most of the bridge logic lives in shared runtime code and can be tested more cheaply in integration tests.
+Prove the desktop app boots into local mode by default and persists connection metadata in isolated userData.
 
-### Existing coverage to inspect first
+### Tests to add
 
-- `test/integration/desktop-agent-task-create.integration.test.ts`
+File: `packages/desktop/e2e/connection-management.spec.ts`
 
-### RED phase — add failing tests
+Start with only the scenarios the current app can support cleanly without extra UI-driving seams:
 
-Create or extend `test/integration/runtime-descriptor-bridge.integration.test.ts`:
+1. `default startup uses local connection`
+   - launch app
+   - assert the loaded origin is localhost/127.0.0.1
 
-```ts
-describe("runtime descriptor bridge", () => {
-	it("writes runtime descriptor on startup with url, auth token, and pid", async () => {
-		// start runtime, inspect descriptor file
-	});
+2. `connections.json persists active connection metadata`
+   - launch app
+   - locate the isolated test `userDataDir`
+   - read `connections.json`
+   - assert `local` exists and an active connection id is present
 
-	it("removes runtime descriptor on shutdown", async () => {
-		// start runtime, shutdown, ensure descriptor missing
-	});
+3. `persisted local state is reused across relaunch`
+   - launch app and close it
+   - relaunch using the same isolated userData dir
+   - assert startup still resolves to local mode and valid persisted state
 
-	it("resolveRuntimeConnection uses descriptor when env vars are absent", async () => {
-		// write descriptor manually, verify resolved origin/auth token
-	});
+### Do not include yet
 
-	it("stale descriptor with dead pid is ignored", async () => {
-		// descriptor pid should fail liveness check
-	});
-});
-```
+Do **not** put these in the first implementation wave unless the harness already has stable support:
 
-### GREEN phase
+- menu-driven remote connection creation
+- remote/local switching through dialogs
+- insecure HTTP warning assertions
+- invalid persisted remote fallback through full UI setup
 
-Use current implementation in:
+Those are valid follow-ups, but they require more state orchestration and can easily make the first harness flaky.
+
+### Claims covered
+
+- ConnectionStore + ConnectionManager + persisted active connection are wired into desktop app
+
+---
+
+## Deliverable 5 — Diagnostics dialog E2E
+
+**Priority:** P1  
+**Depends on:** Deliverable 1
+
+### Goal
+
+Prove that diagnostics shown in the renderer reflect actual desktop runtime state.
+
+### Tests to add
+
+File: `packages/desktop/e2e/diagnostics.spec.ts`
+
+Initial scenario:
+
+1. `diagnostics dialog shows local connected state`
+   - launch app
+   - trigger the real diagnostics open flow
+   - assert the dialog opens
+   - assert local/connected/runtime details are present
+
+### Recommended way to open diagnostics
+
+Prefer one of these, in order:
+
+1. trigger the actual menu item if Playwright/Electron control is straightforward,
+2. send the real `open-diagnostics` event through `electronApp.evaluate(...)`,
+3. only add a dedicated test seam if neither is reliable.
+
+Because `preload.ts` already exposes `onOpenDiagnostics(...)` and `main.ts` already emits `open-diagnostics`, this scenario should be implementable without introducing a new product abstraction.
+
+### Claims covered
+
+- Desktop diagnostics reflect Local/Remote state, runtime version, websocket state, and auth state
+
+---
+
+## Deliverable 6 — Reconnection and disconnect-state E2E
+
+**Priority:** P2  
+**Depends on:** Deliverable 1 and stable control hooks
+
+### Goal
+
+Prove local and remote disconnect UX behave differently and correctly.
+
+### Why this is deferred
+
+The current codebase does not obviously expose a stable test seam for forcing reconnect/disconnect states from Playwright. This should not block the first harness.
+
+### Initial target scenario
+
+File: `packages/desktop/e2e/reconnection.spec.ts`
+
+1. `local runtime disconnect shows full-page disconnected fallback`
+   - launch app
+   - force the local runtime child to die
+   - assert the local disconnected fallback is shown
+
+### Later scenarios
+
+- remote disconnect shows reconnection banner instead of full-page fallback
+- reconnect success shows recovered state
+- repeated reconnect failure shows retry affordance
+
+### Recommendation
+
+Do this only after Wave 2 is green. If needed, add a small test seam that can terminate the runtime child from the main process in a controlled way.
+
+---
+
+## Deliverable 7 — Dist-based CI execution
+
+**Priority:** P2  
+**Depends on:** Deliverable 1 being stable
+
+### Goal
+
+Run the Electron harness against built `dist/` output in CI before attempting full packaged artifact smoke.
+
+### Why dist-first
+
+This is the right intermediate step between “works on one developer machine” and “works in packaged artifacts across platforms.” It verifies:
+
+- Electron boot,
+- runtime child startup,
+- preload wiring,
+- auth interception,
+- and basic persistence,
+
+without immediately taking on every packaging-specific failure mode.
+
+### Suggested workflow shape
+
+Add a workflow later such as `.github/workflows/desktop-e2e.yml` that:
+
+1. checks out the repo
+2. installs dependencies
+3. builds the root/runtime and desktop TypeScript outputs needed by the app
+4. installs Playwright browsers/deps
+5. runs `packages/desktop` E2E smoke specs
+
+### Initial matrix recommendation
+
+Start with the platform most likely to be used for harness development, then expand. A full cross-platform matrix is a follow-up, not a requirement for the first harness landing.
+
+---
+
+## Deliverable 8 — Packaged artifact smoke
+
+**Priority:** P3  
+**Depends on:** Deliverable 7 and packaging hardening
+
+### Goal
+
+Eventually prove packaging assumptions, not just dev/dist assumptions.
+
+### Why this is separate
+
+The hardening plan identifies packaging-specific risks that dist-mode E2E will not fully cover:
+
+- `app.asar` vs `app.asar.unpacked` child entry resolution,
+- native addon availability,
+- packaged shim layout,
+- platform-specific launch behavior.
+
+Those should become packaged smoke checks after the base harness is already trustworthy.
+
+### Packaged-smoke targets
+
+- installed or unpacked app launches
+- runtime child entry survives packaging
+- preload loads correctly
+- auth and runtime reachability still work
+- shutdown is clean
+
+---
+
+## Non-Electron work that should proceed in parallel
+
+These do not depend on the Electron harness and should not wait for it.
+
+### 1. CLI bridge integration expansion
+
+Continue/extend integration tests around:
+
+- runtime descriptor write on startup
+- runtime descriptor cleanup on shutdown
+- descriptor fallback when env vars are absent
+- stale descriptor rejection
+
+Relevant shared code:
 
 - `src/core/runtime-descriptor.ts`
 - `src/core/runtime-endpoint.ts`
 
-### Coverage claim proved
+### 2. CLI shim regression tests
 
-- “Desktop↔CLI runtime bridging via descriptor fallback works and fails safely”
+Strengthen tests around:
 
----
+- executable permissions
+- script contents
+- expected entrypoint targeting
+- optional simulated invocation in packaged layout
 
-## Task 7 — CLI shim invocation regression tests
-
-**Priority:** P1  
-**Type:** Unit/integration  
-**Depends on:** Nothing
-
-### Goal
-Prove the packaged CLI shim is executable in practice, not just present on disk.
-
-### Existing coverage to inspect first
-
-- `packages/desktop/test/cli-shim.test.ts`
-
-### RED phase — add failing tests
-
-Add tests like:
-
-```ts
-it("packaged shim script has executable permissions", () => {
-	// verify mode & existence
-});
-
-it("packaged shim points at expected bundled entrypoint", () => {
-	// inspect script contents
-});
-
-it("dev shim points at expected dev entrypoint", () => {
-	// inspect script contents
-});
-```
-
-### Better follow-up RED case
-
-If practical in CI/dev:
-
-```ts
-it("packaged shim can be invoked with --version in simulated packaged layout", async () => {
-	// build minimal simulated Resources/bin layout, invoke shim, assert success
-});
-```
-
-### Code pointers
+Relevant files:
 
 - `packages/desktop/build/bin/kanban`
 - `packages/desktop/build/bin/kanban-dev`
 - `packages/desktop/build/bin/kanban.cmd`
-- `packages/desktop/test/cli-shim.test.ts`
 
-### Coverage claim proved
+### 3. Connection manager/store gap fill
 
-- “Desktop-managed agent workflows do not depend on a global Kanban install”
+Continue unit/integration coverage for:
 
----
+- corrupt `connections.json`
+- missing persisted state
+- invalid active connection fallback
+- local/remote persistence edge cases
 
-## Task 8 — Connection manager/store unit gap fill
-
-**Priority:** P1  
-**Type:** Unit  
-**Depends on:** Nothing
-
-### Goal
-Fill edge-case gaps around restore/fallback/encryption behavior.
-
-### Existing files to inspect first
+Relevant files:
 
 - `packages/desktop/test/connection-manager.test.ts`
 - `packages/desktop/test/connection-store.test.ts`
 - `packages/desktop/test/main-connection-integration.test.ts`
 
-### RED phase — add failing tests
+### 4. Web UI Playwright additions
 
-#### In `connection-manager.test.ts`
+Extend browser-only coverage for desktop-adjacent UI affordances that do not require Electron.
 
-```ts
-it("initialize restores persisted remote connection when it exists", async () => {
-	// configure store.getActiveConnection() => remote connection
-	// expect loadURL(remoteUrl) and child not started
-});
-
-it("initialize falls back to local when persisted connection is invalid", async () => {
-	// configure invalid active ID / missing connection
-	// expect local startup path
-});
-
-it("shutdown stops child and WSL launcher when both are active", async () => {
-	// start/flag both, call shutdown, assert cleanup
-});
-```
-
-#### In `connection-store.test.ts`
-
-```ts
-it("returns default data when connections.json is corrupted", () => {
-	// write invalid JSON, create store, expect only local connection
-});
-
-it("returns default data when connections.json is missing", () => {
-	// no file, create store, expect defaults
-});
-```
-
-### Code pointers
-
-- `packages/desktop/src/connection-manager.ts`
-- `packages/desktop/src/connection-store.ts`
-
-### Coverage claim proved
-
-- “Persist/restore active connection and fallback behavior are safe”
-
----
-
-## Task 9 — Reconnection banner E2E
-
-**Priority:** P2  
-**Type:** Electron E2E  
-**Depends on:** Task 1
-
-### Goal
-Prove disconnect UI differs correctly between local and remote mode.
-
-### Why this is harder
-Current UI behavior depends on runtime stream state and `isLocal`. There is no obvious stable test-only hook yet for forcing reconnect/disconnect state in Playwright.
-
-### RED phase — add failing tests
-
-Start with local-mode only:
-
-```ts
-test("local runtime disconnect shows full-page disconnected fallback", async () => {
-	// launch app
-	// kill runtime child
-	// assert RuntimeDisconnectedFallback is shown
-});
-```
-
-Then later add remote-mode scenarios once the harness can drive remote connections.
-
-### Remote-mode target scenarios
-
-- Remote disconnect shows top reconnection banner, not full-page fallback
-- Successful reconnect shows `Reconnected`
-- Repeated reconnect failures show `Connection failed` + Retry button
-
-### Code pointers
-
-- `web-ui/src/App.tsx`
-- `web-ui/src/components/reconnection-banner.tsx`
-- `web-ui/src/hooks/runtime-disconnected-fallback.tsx`
-- `web-ui/src/runtime/use-runtime-state-stream.ts`
-
-### Coverage claim proved
-
-- “Remote reconnection UX is distinct from local runtime-disconnected fallback”
-
----
-
-## Task 10 — Web UI Playwright additions
-
-**Priority:** P1  
-**Type:** Web Playwright  
-**Depends on:** Nothing
-
-### Goal
-Extend the existing web-ui Playwright suite with stable coverage that does not need Electron.
-
-### Existing harness
+Relevant files:
 
 - `web-ui/playwright.config.ts`
-- `web-ui/tests/smoke.spec.ts`
-
-### RED phase — add failing tests
-
-Create `web-ui/tests/desktop-features.spec.ts`:
-
-```ts
-import { expect, test } from "@playwright/test";
-
-test("settings dialog opens via settings button", async ({ page }) => {
-	await page.goto("/");
-	await page.getByTestId("open-settings-button").click();
-	await expect(page.getByRole("dialog").getByText("Settings", { exact: true })).toBeVisible();
-});
-
-test("settings dialog opens via mod+shift+s", async ({ page, browserName }) => {
-	await page.goto("/");
-	await page.keyboard.press(browserName === "webkit" ? "Meta+Shift+S" : "Control+Shift+S");
-	await expect(page.getByRole("dialog").getByText("Settings", { exact: true })).toBeVisible();
-});
-
-test("workspace path renders in the top bar", async ({ page }) => {
-	await page.goto("/");
-	await expect(page.getByTestId("workspace-path")).toBeVisible();
-});
-```
-
-### GREEN phase
-
-Should pass with the current web-ui harness if selectors remain stable.
-
-### Code pointers
-
-- `web-ui/src/components/top-bar.tsx`
-- `web-ui/src/hooks/use-app-hotkeys.ts`
-- `web-ui/tests/smoke.spec.ts`
-
-### Coverage claim proved
-
-- “Desktop-oriented UI affordances and settings entry points remain functional”
+- `web-ui/tests/`
 
 ---
 
-## Task 11 — Cross-platform packaged-app smoke CI
+## Recommended implementation order
 
-**Priority:** P2  
-**Type:** CI / automation  
-**Depends on:** Task 1
+If we want the fastest path to meaningful confidence, do the work in this order.
 
-### Goal
-Run minimal packaged-app smoke coverage on macOS, Windows, and Linux.
+### Phase A — build the harness
 
-### Why this matters
-Many of the desktop-app claims are only truly proven in packaged builds:
+1. Add `@playwright/test` and desktop Playwright config
+2. Add `e2e/fixtures.ts`
+3. Add smoke launch/runtime-reachable specs
+4. Add deterministic userData isolation
 
-- app launches from installed artifact,
-- native addon packaging works,
-- `asarUnpack` layout is correct,
-- child process entrypoint survives packaging,
-- platform-specific runtime behavior is sound.
+### Phase B — prove the core architecture claims
 
-### RED phase
+5. Add boot lifecycle E2E
+6. Add auth enforcement E2E
+7. Add connection persistence/local default E2E
+8. Add diagnostics E2E
 
-Create a CI workflow that tries to run the Electron E2E smoke on a matrix and initially fails until the harness is robust enough.
+### Phase C — expand into failure-state behavior
 
-### GREEN phase — baseline workflow
+9. Add disconnect/reconnection scenarios
+10. Add remote-switching scenarios
+11. Add invalid persisted connection fallback through E2E
 
-Suggested workflow file:
+### Phase D — automate beyond local development
 
-- `.github/workflows/desktop-e2e.yml`
-
-Matrix:
-
-- `macos-latest`
-- `windows-latest`
-- `ubuntu-latest`
-
-Steps:
-
-1. Checkout
-2. Setup Node 22
-3. Install repo dependencies
-4. Install `packages/desktop` dependencies
-5. Build desktop TypeScript output
-6. Install Playwright browsers/deps
-7. Run `packages/desktop` E2E smoke
-
-### Follow-up expansions
-
-- add actual packaged artifact smoke instead of dist-only smoke
-- add Linux AppImage smoke
-- add Windows PTY-focused smoke
-
-### Coverage claim proved
-
-- “Cross-platform desktop packaging works beyond local development only”
+12. Add dist-based CI run
+13. Add packaged smoke checks
+14. Expand to platform matrix where justified
 
 ---
 
-## Recommended implementation waves
+## Definition of done for the initial harness landing
 
-### Wave 1 — can run immediately in parallel
+The first harness milestone should be considered complete when all of the following are true:
 
-These do **not** need the Electron harness:
+1. `packages/desktop` has a runnable Playwright config and `npm run e2e` script.
+2. The harness launches the real Electron desktop app from compiled output.
+3. Tests run against isolated userData, not developer state.
+4. At least one smoke spec proves launch and runtime reachability.
+5. At least one auth/lifecycle-oriented spec proves behavior unique to Electron desktop mode.
+6. Cleanup is reliable enough that repeated local runs do not leave orphaned app instances or stale test state.
 
-1. **Task 6** — CLI bridge integration expansion
-2. **Task 7** — CLI shim regression tests
-3. **Task 8** — Connection manager/store unit gap fill
-4. **Task 10** — Web UI Playwright additions
-
-### Wave 2 — foundation
-
-5. **Task 1** — Playwright Electron harness
-
-### Wave 3 — unlocks after Wave 2
-
-6. **Task 2** — Boot lifecycle E2E
-7. **Task 3** — Auth E2E
-8. **Task 4** — Connection management E2E
-9. **Task 5** — Diagnostics E2E
-10. **Task 9** — Reconnection banner E2E
-
-### Wave 4 — CI hardening
-
-11. **Task 11** — Cross-platform packaged smoke workflow
+That is the correct first milestone. Everything else should layer on top of that foundation.
 
 ---
 
-## Fastest path to meaningful confidence
+## Open implementation questions to resolve during execution
 
-If time is limited, the highest-value first sequence is:
+These should be answered while building the harness, not before starting.
 
-1. Task 1 — Electron harness
-2. Task 2 — desktop boot lifecycle E2E
-3. Task 3 — auth E2E
-4. Task 6 — CLI bridge integration
-5. Task 7 — CLI shim regression test
-6. Task 4 — connection management E2E
+1. **Best runtime URL discovery path**
+   - Is `page.url()` sufficient once the window loads?
+   - Do we need a main-process introspection helper?
 
-That sequence proves the biggest branch claims quickly:
+2. **Best proof of authenticated requests**
+   - Does `page.request` use the same auth path we need?
+   - Should the test instead use renderer `fetch` via `page.evaluate(...)`?
 
-- native desktop launch,
-- managed runtime lifecycle,
-- auth enforcement,
-- helper/agent CLI interoperability,
-- connection architecture.
+3. **Best userData override seam**
+   - Can we safely override `userData` without invasive startup changes?
+   - If not, what is the narrowest production-safe startup hook?
 
----
+4. **How much remote-mode coverage belongs in the first harness**
+   - likely minimal
+   - local-mode confidence is the first milestone
 
-## Branch claims → recommended proof source
-
-| Claim | Best proof type |
-|---|---|
-| Native desktop app launches without terminal | Electron E2E |
-| Desktop app manages runtime child | Electron E2E |
-| Desktop auth token + middleware are active | Electron E2E + integration |
-| Desktop↔CLI runtime bridge works | Integration |
-| PTY agents can run `kanban task create` | Existing integration + expand if needed |
-| CLI shims work in packaged/dev layouts | Unit/integration |
-| ConnectionStore/ConnectionManager are wired | Electron E2E + unit |
-| Persist / restore active connection works | Electron E2E + unit |
-| Diagnostics reflect Local/Remote state | Electron E2E |
-| Remote reconnect UX behaves correctly | Electron E2E |
-| Cross-platform packaging is viable | CI packaged smoke |
+5. **When to connect the harness to packaged artifacts**
+   - only after dist-mode runs are stable and hardening work has reduced startup ambiguity
 
 ---
 
-## Notes for implementers
+## Summary
 
-- Prefer **small, stable tests** over broad flaky end-to-end flows.
-- Avoid changing production code just to make tests easier unless a test seam is clearly justified and low-risk.
-- Keep Electron E2E focused on claims that truly require the Electron shell.
-- Keep bridge/shim/runtime behavior in integration tests where possible — they are cheaper and more reliable.
-- Do not assume the existing web-ui Playwright harness proves desktop behavior. It only proves browser-rendered UI against the dev server.
+The next step is not “write all desktop E2E tests.” The next step is to land a **real Electron Playwright harness with deterministic state isolation**, then use it to prove the highest-risk desktop-local behaviors first.
+
+That gives us a stable base for the broader hardening plan, keeps the first milestone realistic, and avoids mixing foundational harness work with flaky remote-mode or packaged-app scenarios too early.
