@@ -9,6 +9,14 @@
  *   interceptor for the local origin, loadURL(localhost).
  * - HTTP warning: warn before connecting to non-localhost http:// URLs.
  * - Auth token injection via session.webRequest.onBeforeSendHeaders.
+ *
+ * Fallback behavior (required by connection architecture):
+ * If the saved connection is invalid (deleted, unreachable, or auth fails),
+ * the app should:
+ *   1. Log a warning
+ *   2. Fall back to local connection
+ *   3. Update the persisted active connection to local
+ *   4. Not crash or hang
  */
 
 import { BrowserWindow, dialog, type Session } from "electron";
@@ -30,6 +38,16 @@ export interface ConnectionManagerOptions {
 	childManager: RuntimeChildManager;
 	store: ConnectionStore;
 	onConnectionChanged?: () => void;
+	/**
+	 * Called when the local runtime becomes ready with its URL and auth token.
+	 * Used by main.ts to publish the runtime descriptor for CLI discovery.
+	 */
+	onLocalRuntimeReady?: (url: string, authToken: string) => void;
+	/**
+	 * Called when the local runtime is being stopped (switching away or shutting down).
+	 * Used by main.ts to clear the runtime descriptor.
+	 */
+	onLocalRuntimeStopped?: () => void;
 	/**
 	 * Factory that creates a `WslLauncher` on demand (with the given auth token).
 	 * Only set when WSL is available on this machine.
@@ -57,11 +75,16 @@ export class ConnectionManager {
 	private wslUrl = "";
 	private wslAuthToken = "";
 
+	private readonly onLocalRuntimeReady?: (url: string, authToken: string) => void;
+	private readonly onLocalRuntimeStopped?: () => void;
+
 	constructor(options: ConnectionManagerOptions) {
 		this.window = options.window;
 		this.childManager = options.childManager;
 		this.store = options.store;
 		this.onConnectionChanged = options.onConnectionChanged;
+		this.onLocalRuntimeReady = options.onLocalRuntimeReady;
+		this.onLocalRuntimeStopped = options.onLocalRuntimeStopped;
 		this.createWslLauncher = options.createWslLauncher;
 	}
 
@@ -89,19 +112,52 @@ export class ConnectionManager {
 		this.onConnectionChanged?.();
 	}
 
-	/** Initialize — starts local runtime if "local" is active. */
+	/**
+	 * Initialize — restore the persisted active connection.
+	 *
+	 * Reads the active connection from the store and switches to it.
+	 * If the saved connection is non-local and fails to connect (deleted,
+	 * unreachable, or otherwise invalid), falls back to local gracefully:
+	 *   1. Log a warning
+	 *   2. Fall back to local connection
+	 *   3. Update the persisted active connection to local
+	 *   4. Not crash or hang
+	 */
 	async initialize(): Promise<void> {
 		const active = this.store.getActiveConnection();
 		if (active.id === "local") {
 			await this.switchToLocal();
+		} else if (active.id === "wsl") {
+			try {
+				await this.switchToWsl();
+			} catch (err) {
+				console.warn(
+					`[ConnectionManager] Failed to restore WSL connection, falling back to local:`,
+					err instanceof Error ? err.message : err,
+				);
+				this.store.setActiveConnection("local");
+				this.onConnectionChanged?.();
+				await this.switchToLocal();
+			}
 		} else {
-			await this.switchToRemote(active);
+			try {
+				await this.switchToRemote(active);
+			} catch (err) {
+				console.warn(
+					`[ConnectionManager] Failed to restore remote connection "${active.label}" (${active.id}), falling back to local:`,
+					err instanceof Error ? err.message : err,
+				);
+				this.store.setActiveConnection("local");
+				this.onConnectionChanged?.();
+				await this.switchToLocal();
+			}
 		}
 	}
 
 	/** Graceful shutdown — stop child and/or WSL if running. */
 	async shutdown(): Promise<void> {
 		if (this.childRunning) {
+			this.onLocalRuntimeStopped?.();
 			try {
 				await this.childManager.shutdown();
 			} catch {
@@ -121,6 +177,14 @@ export class ConnectionManager {
 		return this.localUrl;
 	}
 
+	getLocalAuthToken(): string {
+		return this.localAuthToken;
+	}
+
+	getActiveConnectionId(): string {
+		return this.store.getActiveConnectionId();
+	}
+
 	// -- Private switching ----------------------------------------------------
 
 	private async switchToLocal(): Promise<void> {
@@ -133,6 +197,7 @@ export class ConnectionManager {
 					authToken: this.localAuthToken,
 				});
 				this.childRunning = true;
+				this.onLocalRuntimeReady?.(this.localUrl, this.localAuthToken);
 			} catch (err) {
 				console.error("[ConnectionManager] Failed to start local runtime:", err);
 				this.localUrl = "about:blank";
@@ -159,6 +224,7 @@ export class ConnectionManager {
 			if (response === 0) return;
 		}
 		if (this.childRunning) {
+			this.onLocalRuntimeStopped?.();
 			try {
 				await this.childManager.shutdown();
 			} catch {
@@ -178,6 +244,7 @@ export class ConnectionManager {
 		}
 		// Stop local child if running.
 		if (this.childRunning) {
+			this.onLocalRuntimeStopped?.();
 			try { await this.childManager.shutdown(); } catch { /* best-effort */ }
 			this.childRunning = false;
 		}

@@ -28,6 +28,9 @@ import { homedir } from "node:os";
 import path from "node:path";
 
 import { generateAuthToken, installAuthHeaderInterceptor } from "./auth.js";
+import { ConnectionManager } from "./connection-manager.js";
+import { installConnectionMenu } from "./connection-menu.js";
+import { ConnectionStore } from "./connection-store.js";
 import type { RuntimeConfig } from "./ipc-protocol.js";
 import {
 	extractProtocolUrlFromArgv,
@@ -274,6 +277,12 @@ let mainWindow: BrowserWindow | null = null;
 /** The runtime child process manager. */
 let runtimeManager: RuntimeChildManager | null = null;
 
+/** The connection store — persists saved connections to disk. */
+let connectionStore: ConnectionStore | null = null;
+
+/** The connection manager — orchestrates switching between connections. */
+let connectionManager: ConnectionManager | null = null;
+
 /** The ephemeral auth token for the current session. */
 let authToken: string | null = null;
 
@@ -474,12 +483,16 @@ function createMainWindow(): BrowserWindow {
 // Runtime child process lifecycle
 // ---------------------------------------------------------------------------
 
-async function startRuntimeChild(): Promise<string> {
-	authToken = generateAuthToken();
-
+/**
+ * Create the RuntimeChildManager and wire its event handlers.
+ *
+ * The returned manager is NOT started yet — the ConnectionManager will
+ * start it when the active connection is "local".
+ */
+function createRuntimeChildManager(): RuntimeChildManager {
 	const childScriptPath = path.join(import.meta.dirname, "runtime-child-entry.js");
 
-	runtimeManager = new RuntimeChildManager({
+	const manager = new RuntimeChildManager({
 		childScriptPath,
 		shutdownTimeoutMs: 5_000,
 		heartbeatTimeoutMs: 15_000,
@@ -489,8 +502,9 @@ async function startRuntimeChild(): Promise<string> {
 
 	// When the runtime crashes and auto-restarts, re-wire the auth interceptor
 	// and reload the window.
-	runtimeManager.on("ready", (url: string) => {
+	manager.on("ready", (url: string) => {
 		runtimeUrl = url;
+		authToken = connectionManager?.getLocalAuthToken() ?? authToken;
 		// Publish descriptor so CLI helpers can discover this runtime.
 		publishRuntimeDescriptor(url, authToken!);
 		if (mainWindow && !mainWindow.isDestroyed()) {
@@ -503,7 +517,7 @@ async function startRuntimeChild(): Promise<string> {
 		}
 	});
 
-	runtimeManager.on("error", (message: string) => {
+	manager.on("error", (message: string) => {
 		console.error(`[desktop] Runtime error: ${message}`);
 		if (mainWindow && !mainWindow.isDestroyed()) {
 			dialog.showErrorBox(
@@ -513,7 +527,7 @@ async function startRuntimeChild(): Promise<string> {
 		}
 	});
 
-	runtimeManager.on(
+	manager.on(
 		"crashed",
 		(exitCode: number | null, signal: string | null) => {
 			console.error(
@@ -521,6 +535,18 @@ async function startRuntimeChild(): Promise<string> {
 			);
 		},
 	);
+
+	return manager;
+}
+
+/**
+ * Legacy startup path — used when explicit KANBAN_RUNTIME_HOST/PORT env vars
+ * override the connection architecture (backward compatibility for CLI/npm users).
+ */
+async function startRuntimeChildDirectly(): Promise<string> {
+	authToken = generateAuthToken();
+
+	runtimeManager = createRuntimeChildManager();
 
 	// Compute the absolute path to the bundled CLI shim.
 	// Packaged:  <app>/Contents/Resources/bin/kanban (macOS)
@@ -576,6 +602,20 @@ async function restartRuntimeChild(): Promise<void> {
 	}
 
 	runtimeRestartPromise = (async () => {
+		// If the connection manager is available, restart through it so
+		// the local runtime is re-initialized properly (new auth token,
+		// descriptor published, etc.).
+		if (connectionManager) {
+			try {
+				await connectionManager.shutdown();
+			} catch {
+				// best-effort
+			}
+			await connectionManager.initialize();
+			return;
+		}
+
+		// Fallback for legacy direct-start path (no connection manager).
 		const currentRuntimeManager = runtimeManager;
 		if (currentRuntimeManager?.running) {
 			try {
@@ -592,7 +632,7 @@ async function restartRuntimeChild(): Promise<void> {
 		}
 		runtimeManager = null;
 		runtimeUrl = null;
-		await startRuntimeChild();
+		await startRuntimeChildDirectly();
 	})().finally(() => {
 		runtimeRestartPromise = null;
 	});
@@ -631,6 +671,10 @@ function stopAppNapPrevention(): void {
 function setupPowerMonitorHealthCheck(): void {
 	powerMonitor.on("resume", () => {
 		// After waking from sleep, the runtime child may have stalled.
+		// Only relevant when the active connection is local (child process).
+		const activeId = connectionManager?.getActiveConnectionId() ?? "local";
+		if (activeId !== "local") return;
+
 		// Send a heartbeat-ack immediately, then verify the HTTP server is
 		// still responsive. If health probing fails, restart the child.
 		if (runtimeManager?.running) {
@@ -686,6 +730,21 @@ async function showInterruptedTasksToast(): Promise<void> {
 // Application lifecycle
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Helper: rebuild the connection menu (called when connection changes).
+// ---------------------------------------------------------------------------
+
+function rebuildConnectionMenu(): void {
+	if (!mainWindow || !connectionStore || !connectionManager) return;
+	installConnectionMenu({
+		store: connectionStore,
+		manager: connectionManager,
+		window: mainWindow,
+	});
+}
+
+// ---------------------------------------------------------------------------
+
 if (gotTheLock) {
 	app.whenReady().then(async () => {
 		// Ensure userData directory exists for window-state persistence.
@@ -696,30 +755,48 @@ if (gotTheLock) {
 		// Create the main window.
 		mainWindow = createMainWindow();
 
-		// Build and apply the application menu.
+		// Build and apply the base application menu.
 		const menu = Menu.buildFromTemplate(buildMenuTemplate());
 		Menu.setApplicationMenu(menu);
 
 		// Prevent macOS App Nap.
 		startAppNapPrevention();
 
-		// Start the runtime child process.
+		// --- Connection architecture: wire store + manager ----------------
+
+		// Instantiate the connection store (reads persisted connections).
+		connectionStore = new ConnectionStore(app.getPath("userData"));
+
+		// Create the RuntimeChildManager (not started yet).
+		runtimeManager = createRuntimeChildManager();
+
+		// Instantiate the connection manager.
+		connectionManager = new ConnectionManager({
+			window: mainWindow,
+			childManager: runtimeManager,
+			store: connectionStore,
+			onConnectionChanged: () => {
+				rebuildConnectionMenu();
+			},
+			onLocalRuntimeReady: (url, token) => {
+				runtimeUrl = url;
+				authToken = token;
+				void publishRuntimeDescriptor(url, token);
+			},
+			onLocalRuntimeStopped: () => {
+				void clearRuntimeDescriptor();
+				runtimeUrl = null;
+			},
+		});
+
+		// Install the Connection menu into the app menu bar.
+		rebuildConnectionMenu();
+
+		// Initialize the connection (restores persisted active connection,
+		// starts local runtime if active connection is "local", or connects
+		// to a remote/WSL server).
 		try {
-			const url = await startRuntimeChild();
-			runtimeUrl = url;
-
-			// Publish descriptor so CLI helpers can discover this runtime.
-			await publishRuntimeDescriptor(url, authToken!);
-
-			// Install the auth header interceptor on the window's session.
-			installAuthHeaderInterceptor(
-				mainWindow.webContents.session,
-				authToken!,
-				url,
-			);
-
-			// Load the runtime UI.
-			await mainWindow.loadURL(url);
+			await connectionManager.initialize();
 
 			// Check for interrupted tasks from a previous session (non-blocking).
 			showInterruptedTasksToast();
@@ -774,9 +851,22 @@ if (gotTheLock) {
 			);
 		}
 
-		// If the runtime is running, prevent the default quit, shut down
-		// the child process gracefully, then quit for real.
-		if (runtimeManager?.running) {
+		// Shut down through the connection manager — this handles both
+		// local child process and WSL launcher cleanup.
+		if (connectionManager) {
+			event.preventDefault();
+			try {
+				await connectionManager.shutdown();
+			} catch (err) {
+				console.error(
+					"[desktop] Connection shutdown error:",
+					err instanceof Error ? err.message : err,
+				);
+			}
+			stopAppNapPrevention();
+			app.quit();
+		} else if (runtimeManager?.running) {
+			// Fallback for legacy direct-start path.
 			event.preventDefault();
 			try {
 				await runtimeManager.shutdown();
@@ -803,5 +893,9 @@ if (gotTheLock) {
 			await runtimeManager.dispose().catch(() => {});
 			runtimeManager = null;
 		}
+
+		// Clear references.
+		connectionManager = null;
+		connectionStore = null;
 	});
 }
