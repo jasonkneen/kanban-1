@@ -14,6 +14,7 @@ import { DiagnosticsDialog } from "@/components/diagnostics-dialog";
 import { GitHistoryView } from "@/components/git-history-view";
 import { KanbanBoard } from "@/components/kanban-board";
 import { ProjectNavigationPanel } from "@/components/project-navigation-panel";
+import { ReconnectionBanner, type ReconnectionBannerStatus } from "@/components/reconnection-banner";
 import { ResizableBottomPane } from "@/components/resizable-bottom-pane";
 import { RuntimeSettingsDialog, type RuntimeSettingsSection } from "@/components/runtime-settings-dialog";
 import { ServerDirectoryBrowser } from "@/components/server-directory-browser";
@@ -92,6 +93,12 @@ export default function App(): ReactElement {
 	const [pendingTaskStartAfterEditId, setPendingTaskStartAfterEditId] = useState<string | null>(null);
 	const taskEditorResetRef = useRef<() => void>(() => {});
 	const lastStreamErrorRef = useRef<string | null>(null);
+
+	// -- Reconnection banner state (remote mode only) --
+	const [reconnectionBannerStatus, setReconnectionBannerStatus] = useState<ReconnectionBannerStatus | null>(null);
+	const reconnectionBannerTimerRef = useRef<number | null>(null);
+	const wasDisconnectedRef = useRef(false);
+
 	const handleProjectSwitchStart = useCallback(() => {
 		setCanPersistWorkspaceState(false);
 		setSelectedTaskId(null);
@@ -118,6 +125,7 @@ export default function App(): ReactElement {
 		hasNoProjects,
 		isProjectSwitching,
 		isLocal,
+		reconnectAttemptCount,
 		handleSelectProject,
 		handleAddProject,
 		handleAddProjectByPath,
@@ -533,6 +541,61 @@ export default function App(): ReactElement {
 		lastStreamErrorRef.current = streamError;
 	}, [isRuntimeDisconnected, streamError]);
 
+	// -- Reconnection banner lifecycle (remote mode only) --
+	useEffect(() => {
+		// Clean up any pending auto-dismiss timer when unmounting or deps change.
+		return () => {
+			if (reconnectionBannerTimerRef.current !== null) {
+				window.clearTimeout(reconnectionBannerTimerRef.current);
+				reconnectionBannerTimerRef.current = null;
+			}
+		};
+	}, []);
+
+	useEffect(() => {
+		if (isLocal) {
+			// In local mode, don't show the reconnection banner.
+			wasDisconnectedRef.current = false;
+			setReconnectionBannerStatus(null);
+			return;
+		}
+
+		if (isRuntimeDisconnected) {
+			wasDisconnectedRef.current = true;
+			setReconnectionBannerStatus("reconnecting");
+			// Clear any pending reconnected auto-dismiss timer.
+			if (reconnectionBannerTimerRef.current !== null) {
+				window.clearTimeout(reconnectionBannerTimerRef.current);
+				reconnectionBannerTimerRef.current = null;
+			}
+			return;
+		}
+
+		// Connection was restored after being disconnected in remote mode.
+		if (wasDisconnectedRef.current) {
+			wasDisconnectedRef.current = false;
+			setReconnectionBannerStatus("reconnected");
+			// Auto-dismiss after 2 seconds.
+			reconnectionBannerTimerRef.current = window.setTimeout(() => {
+				setReconnectionBannerStatus(null);
+				reconnectionBannerTimerRef.current = null;
+			}, 2000);
+		}
+	}, [isLocal, isRuntimeDisconnected]);
+
+	const handleReconnectionBannerRetry = useCallback(() => {
+		// Force a page reload to re-establish the WebSocket connection.
+		window.location.reload();
+	}, []);
+
+	const handleReconnectionBannerDismiss = useCallback(() => {
+		setReconnectionBannerStatus(null);
+		if (reconnectionBannerTimerRef.current !== null) {
+			window.clearTimeout(reconnectionBannerTimerRef.current);
+			reconnectionBannerTimerRef.current = null;
+		}
+	}, []);
+
 	useEffect(() => {
 		setSelectedTaskId(null);
 		resetTaskEditorState();
@@ -775,7 +838,7 @@ export default function App(): ReactElement {
 		/>
 	) : undefined;
 
-	if (isRuntimeDisconnected) {
+	if (isRuntimeDisconnected && isLocal) {
 		return <RuntimeDisconnectedFallback />;
 	}
 	if (isKanbanAccessBlocked) {
@@ -784,6 +847,14 @@ export default function App(): ReactElement {
 
 	return (
 		<div className="flex h-[100svh] min-w-0 overflow-hidden">
+			{reconnectionBannerStatus !== null ? (
+				<ReconnectionBanner
+					status={reconnectionBannerStatus}
+					attemptCount={reconnectAttemptCount}
+					onRetry={handleReconnectionBannerRetry}
+					onDismiss={handleReconnectionBannerDismiss}
+				/>
+			) : null}
 			{!selectedCard ? (
 				<ProjectNavigationPanel
 					projects={displayedProjects}

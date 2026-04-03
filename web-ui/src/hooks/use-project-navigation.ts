@@ -72,6 +72,7 @@ export interface UseProjectNavigationResult {
 	hasNoProjects: boolean;
 	isProjectSwitching: boolean;
 	isLocal: boolean;
+	reconnectAttemptCount: number;
 	handleSelectProject: (projectId: string) => void;
 	handleAddProject: () => Promise<void>;
 	handleAddProjectByPath: (path: string, initializeGit?: boolean) => Promise<void>;
@@ -108,6 +109,7 @@ export function useProjectNavigation({ onProjectSwitchStart }: UseProjectNavigat
 		isRuntimeDisconnected,
 		hasReceivedSnapshot,
 		isLocal,
+		reconnectAttemptCount,
 	} = useRuntimeStateStream(requestedProjectId);
 
 	const hasNoProjects = hasReceivedSnapshot && projects.length === 0 && currentProjectId === null;
@@ -331,6 +333,7 @@ export function useProjectNavigation({ onProjectSwitchStart }: UseProjectNavigat
 		hasNoProjects,
 		isProjectSwitching,
 		isLocal,
+		reconnectAttemptCount,
 		handleSelectProject,
 		handleAddProject,
 		handleAddProjectByPath: addProjectByPath,

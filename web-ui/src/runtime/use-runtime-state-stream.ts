@@ -61,6 +61,7 @@ export interface UseRuntimeStateStreamResult {
 	isRuntimeDisconnected: boolean;
 	hasReceivedSnapshot: boolean;
 	isLocal: boolean;
+	reconnectAttemptCount: number;
 }
 
 interface RuntimeStateStreamStore {
@@ -78,6 +79,7 @@ interface RuntimeStateStreamStore {
 	isRuntimeDisconnected: boolean;
 	hasReceivedSnapshot: boolean;
 	isLocal: boolean;
+	reconnectAttemptCount: number;
 }
 
 type RuntimeStateStreamAction =
@@ -116,6 +118,7 @@ function createInitialRuntimeStateStreamStore(requestedWorkspaceId: string | nul
 		isRuntimeDisconnected: false,
 		hasReceivedSnapshot: false,
 		isLocal: true,
+		reconnectAttemptCount: 0,
 	};
 }
 
@@ -175,6 +178,7 @@ function runtimeStateStreamReducer(
 			...state,
 			streamError: null,
 			isRuntimeDisconnected: false,
+			reconnectAttemptCount: 0,
 		};
 	}
 	if (action.type === "snapshot") {
@@ -205,6 +209,7 @@ function runtimeStateStreamReducer(
 			isRuntimeDisconnected: false,
 			hasReceivedSnapshot: true,
 			isLocal: nextIsLocal,
+			reconnectAttemptCount: 0,
 		};
 	}
 	if (action.type === "projects_updated") {
@@ -301,6 +306,7 @@ function runtimeStateStreamReducer(
 			...state,
 			streamError: action.message,
 			isRuntimeDisconnected: true,
+			reconnectAttemptCount: state.reconnectAttemptCount + 1,
 		};
 	}
 	return state;
@@ -525,5 +531,6 @@ export function useRuntimeStateStream(requestedWorkspaceId: string | null): UseR
 		isRuntimeDisconnected: state.isRuntimeDisconnected,
 		hasReceivedSnapshot: state.hasReceivedSnapshot,
 		isLocal: state.isLocal,
+		reconnectAttemptCount: state.reconnectAttemptCount,
 	};
 }
