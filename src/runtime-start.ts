@@ -27,17 +27,24 @@ function readRuntimeVersion(): string {
 	}
 }
 
-export interface RuntimeOptions {
+export interface RuntimeCallbacks {
+	pickDirectory?: () => Promise<string | null>;
+	warn?: (message: string) => void;
+}
+
+export interface RuntimeStartOptions {
 	host?: string;
 	port?: number | "auto";
 	authToken?: string;
 	cwd?: string;
 	isLocal?: boolean;
 	openInBrowser?: boolean;
-	pickDirectory?: () => Promise<string | null>;
-	warn?: (message: string) => void;
+	callbacks?: RuntimeCallbacks;
 	directoryBrowseRoot?: string;
 }
+
+/** @deprecated Use {@link RuntimeStartOptions} instead. */
+export type RuntimeOptions = RuntimeStartOptions;
 
 export interface RuntimeShutdownOptions {
 	skipSessionCleanup?: boolean;
@@ -211,17 +218,17 @@ async function bootServer(
 	};
 }
 
-export async function startRuntime(options?: RuntimeOptions): Promise<RuntimeHandle> {
+export async function startRuntime(options?: RuntimeStartOptions): Promise<RuntimeHandle> {
 	const host = options?.host ?? DEFAULT_KANBAN_RUNTIME_HOST;
 	const portOption = options?.port;
-	const warn = options?.warn ?? console.warn;
+	const warn = options?.callbacks?.warn ?? console.warn;
 	const runtimeCwd = options?.cwd ?? process.cwd();
 
 	const defaultPickDirectory = async (): Promise<string | null> => {
 		const { pickDirectoryPathFromSystemDialog } = await import("./server/directory-picker.js");
 		return Promise.resolve(pickDirectoryPathFromSystemDialog());
 	};
-	const pickDirectory = options?.pickDirectory ?? defaultPickDirectory;
+	const pickDirectory = options?.callbacks?.pickDirectory ?? defaultPickDirectory;
 	const isLocal = options?.isLocal ?? true;
 	const runtimeVersion = readRuntimeVersion();
 

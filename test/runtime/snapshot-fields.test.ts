@@ -3,7 +3,7 @@ import {
 	type RuntimeStateStreamSnapshotMessage,
 	runtimeStateStreamSnapshotMessageSchema,
 } from "../../src/core/api-contract";
-import type { RuntimeOptions } from "../../src/runtime-start";
+import type { RuntimeStartOptions } from "../../src/runtime-start";
 import type { CreateRuntimeStateHubDependencies } from "../../src/server/runtime-state-hub";
 
 describe("snapshot fields — isLocal and runtimeVersion", () => {
@@ -110,19 +110,19 @@ describe("snapshot fields — isLocal and runtimeVersion", () => {
 		});
 	});
 
-	describe("RuntimeOptions", () => {
+	describe("RuntimeStartOptions", () => {
 		it("isLocal defaults to undefined when not set", () => {
-			const options: RuntimeOptions = {};
+			const options: RuntimeStartOptions = {};
 			expect(options.isLocal).toBeUndefined();
 		});
 
 		it("accepts isLocal: true", () => {
-			const options: RuntimeOptions = { isLocal: true };
+			const options: RuntimeStartOptions = { isLocal: true };
 			expect(options.isLocal).toBe(true);
 		});
 
 		it("accepts isLocal: false", () => {
-			const options: RuntimeOptions = { isLocal: false };
+			const options: RuntimeStartOptions = { isLocal: false };
 			expect(options.isLocal).toBe(false);
 		});
 	});
@@ -145,9 +145,9 @@ describe("snapshot fields — isLocal and runtimeVersion", () => {
 			expect(typeof mod.startRuntime).toBe("function");
 		});
 
-		it("RuntimeOptions type supports isLocal field", () => {
-			// Type-level check: if this compiles, the field exists on RuntimeOptions
-			const opts: RuntimeOptions = { isLocal: false, warn: () => {} };
+		it("RuntimeStartOptions type supports isLocal field", () => {
+			// Type-level check: if this compiles, the field exists on RuntimeStartOptions
+			const opts: RuntimeStartOptions = { isLocal: false, callbacks: { warn: () => {} } };
 			expect(opts.isLocal).toBe(false);
 		});
 	});

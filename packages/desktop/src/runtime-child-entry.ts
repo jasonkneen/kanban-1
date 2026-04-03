@@ -58,9 +58,11 @@ process.on("message", async (raw: unknown) => {
 					host: msg.config.host,
 					port: msg.config.port,
 					authToken: msg.config.authToken,
-					warn: (message: string) => {
-						// Forward warnings to the parent as error messages.
-						send({ type: "error", message });
+					callbacks: {
+						warn: (message: string) => {
+							// Forward warnings to the parent as error messages.
+							send({ type: "error", message });
+						},
 					},
 				});
 

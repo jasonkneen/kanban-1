@@ -230,7 +230,7 @@ async function runMainCommand(options: CliOptions, shouldAutoOpenBrowser: boolea
 		runtime = await startRuntime({
 			host: options.host ?? undefined,
 			port: portOption?.mode === "auto" ? "auto" : portOption?.mode === "fixed" ? portOption.value : undefined,
-			warn: console.warn,
+			callbacks: { warn: console.warn },
 		});
 	} catch (error) {
 		if (

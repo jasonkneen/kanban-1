@@ -135,7 +135,7 @@ describe("desktop agent task create via env var propagation", { timeout: 60_000 
 			host: "127.0.0.1",
 			port,
 			authToken,
-			warn: () => {},
+			callbacks: { warn: () => {} },
 			isLocal: true,
 		});
 
@@ -166,7 +166,7 @@ describe("desktop agent task create via env var propagation", { timeout: 60_000 
 			host: "127.0.0.1",
 			port,
 			authToken,
-			warn: () => {},
+			callbacks: { warn: () => {} },
 			isLocal: true,
 		});
 

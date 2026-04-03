@@ -5,7 +5,7 @@ import {
 	setKanbanRuntimeHost,
 	setKanbanRuntimePort,
 } from "../../src/core/runtime-endpoint";
-import type { RuntimeHandle, RuntimeOptions } from "../../src/runtime-start";
+import type { RuntimeCallbacks, RuntimeHandle, RuntimeOptions, RuntimeStartOptions } from "../../src/runtime-start";
 
 const originalHost = getKanbanRuntimeHost();
 const originalPort = getKanbanRuntimePort();
@@ -28,15 +28,38 @@ afterEach(() => {
 });
 
 describe("runtime-start types", () => {
-	it("exports RuntimeOptions interface with expected optional fields", () => {
-		const options: RuntimeOptions = {};
+	it("exports RuntimeStartOptions interface with expected optional fields", () => {
+		const options: RuntimeStartOptions = {};
 		expect(options.host).toBeUndefined();
 		expect(options.port).toBeUndefined();
 		expect(options.authToken).toBeUndefined();
 		expect(options.cwd).toBeUndefined();
 		expect(options.openInBrowser).toBeUndefined();
-		expect(options.pickDirectory).toBeUndefined();
-		expect(options.warn).toBeUndefined();
+		expect(options.callbacks).toBeUndefined();
+	});
+
+	it("RuntimeStartOptions has callbacks as a nested object with pickDirectory and warn", () => {
+		const options: RuntimeStartOptions = {
+			callbacks: {
+				pickDirectory: async () => "/tmp/test",
+				warn: () => {},
+			},
+		};
+		expect(options.callbacks).toBeDefined();
+		expect(typeof options.callbacks?.pickDirectory).toBe("function");
+		expect(typeof options.callbacks?.warn).toBe("function");
+	});
+
+	it("RuntimeCallbacks interface has expected shape", () => {
+		const callbacks: RuntimeCallbacks = {};
+		expect(callbacks.pickDirectory).toBeUndefined();
+		expect(callbacks.warn).toBeUndefined();
+	});
+
+	it("RuntimeOptions is a deprecated alias for RuntimeStartOptions", () => {
+		const options: RuntimeOptions = {};
+		const startOptions: RuntimeStartOptions = options;
+		expect(startOptions).toBe(options);
 	});
 
 	it("exports RuntimeHandle interface shape", () => {
@@ -56,21 +79,38 @@ describe("runtime-start types", () => {
 		expect(Object.keys(handle).sort()).toEqual(["shutdown", "url"]);
 	});
 
-	it("RuntimeOptions.pickDirectory is async", async () => {
-		const pickDirectory: NonNullable<RuntimeOptions["pickDirectory"]> = async () => "/tmp/test";
+	it("callbacks.pickDirectory is async", async () => {
+		const pickDirectory: NonNullable<RuntimeCallbacks["pickDirectory"]> = async () => "/tmp/test";
 		const result = await pickDirectory();
 		expect(result).toBe("/tmp/test");
 	});
 
-	it("RuntimeOptions.pickDirectory can return null", async () => {
-		const pickDirectory: NonNullable<RuntimeOptions["pickDirectory"]> = async () => null;
+	it("callbacks.pickDirectory can return null", async () => {
+		const pickDirectory: NonNullable<RuntimeCallbacks["pickDirectory"]> = async () => null;
 		const result = await pickDirectory();
 		expect(result).toBeNull();
 	});
 
-	it("RuntimeOptions.cwd accepts an explicit working directory", () => {
-		const options: RuntimeOptions = { cwd: "/tmp/kanban-workspace" };
+	it("callbacks.warn receives a string message", () => {
+		const messages: string[] = [];
+		const warn: NonNullable<RuntimeCallbacks["warn"]> = (message) => {
+			messages.push(message);
+		};
+		warn("test warning");
+		expect(messages).toEqual(["test warning"]);
+	});
+
+	it("RuntimeStartOptions.cwd accepts an explicit working directory", () => {
+		const options: RuntimeStartOptions = { cwd: "/tmp/kanban-workspace" };
 		expect(options.cwd).toBe("/tmp/kanban-workspace");
+	});
+
+	it("startRuntime with no callbacks provided still compiles (callbacks is optional)", () => {
+		const options: RuntimeStartOptions = {
+			host: "127.0.0.1",
+			port: 3484,
+		};
+		expect(options.callbacks).toBeUndefined();
 	});
 
 	it("startRuntime is exported as a function", async () => {
