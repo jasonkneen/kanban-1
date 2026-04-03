@@ -283,6 +283,8 @@ function buildCleanup(
 	electronApp: ElectronApplication,
 	userDataDir: string,
 	runtimeDescriptorDir: string,
+	/** When `true` the caller owns `userDataDir` — don't delete it. */
+	skipUserDataCleanup = false,
 ): () => Promise<void> {
 	return async () => {
 		// Close the Electron app first — this triggers the before-quit /
@@ -295,10 +297,12 @@ function buildCleanup(
 
 		// Remove temp directories.  `force: true` so missing dirs don't
 		// cause errors (e.g. if cleanup runs twice).
-		try {
-			await rm(userDataDir, { recursive: true, force: true });
-		} catch {
-			console.warn(`[e2e:fixture] Failed to remove temp userDataDir: ${userDataDir}`);
+		if (!skipUserDataCleanup) {
+			try {
+				await rm(userDataDir, { recursive: true, force: true });
+			} catch {
+				console.warn(`[e2e:fixture] Failed to remove temp userDataDir: ${userDataDir}`);
+			}
 		}
 
 		try {
@@ -343,15 +347,37 @@ function buildCleanup(
  *
  * These are documented here for implementors of the global-teardown task.
  */
-export async function launchDesktopApp(): Promise<LaunchedDesktopApp> {
+
+/**
+ * Options for customising a `launchDesktopApp()` invocation.
+ *
+ * All fields are optional — the defaults match the original zero-argument
+ * behaviour (fresh temp dirs that are cleaned up automatically).
+ */
+export interface LaunchDesktopAppOptions {
+	/**
+	 * When provided, use this directory as the Electron `userData` path
+	 * instead of creating a fresh temp directory.
+	 *
+	 * The caller is responsible for creating the directory beforehand
+	 * and cleaning it up after the test.  The built-in cleanup function
+	 * will **not** delete a caller-supplied userDataDir.
+	 */
+	userDataDir?: string;
+}
+
+export async function launchDesktopApp(
+	options?: LaunchDesktopAppOptions,
+): Promise<LaunchedDesktopApp> {
 	// Step 1 — ensure build artifacts exist.
 	ensureDesktopBuild();
 
 	// Step 2 — ensure runtime dependencies are resolvable.
 	ensureDesktopRuntimeDependencies();
 
-	// Step 3 — create isolated temp userData dir.
-	const userDataDir = await createTempUserDataDir();
+	// Step 3 — create isolated temp userData dir (or use the caller's).
+	const callerOwnedUserData = !!options?.userDataDir;
+	const userDataDir = options?.userDataDir ?? (await createTempUserDataDir());
 
 	// Step 4 — create isolated temp runtime descriptor dir.
 	const runtimeDescriptorDir = await createTempRuntimeDescriptorDir();
@@ -385,6 +411,7 @@ export async function launchDesktopApp(): Promise<LaunchedDesktopApp> {
 			electronApp,
 			userDataDir,
 			runtimeDescriptorDir,
+			callerOwnedUserData,
 		);
 
 		return {
