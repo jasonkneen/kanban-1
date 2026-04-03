@@ -11,6 +11,7 @@
  * - powerMonitor resume health check
  * - Window state persistence to userData/window-state.json
  * - Interrupted tasks notification on restart
+ * - kanban:// custom protocol for OAuth deep-links
  */
 
 import {
@@ -27,6 +28,11 @@ import path from "node:path";
 
 import { generateAuthToken, installAuthHeaderInterceptor } from "./auth.js";
 import type { RuntimeConfig } from "./ipc-protocol.js";
+import {
+	extractProtocolUrlFromArgv,
+	parseProtocolUrl,
+	registerProtocol,
+} from "./protocol-handler.js";
 import { RuntimeChildManager } from "./runtime-child.js";
 import {
 	type WindowState,
@@ -232,6 +238,91 @@ let powerSaveBlockerId = -1;
 let isQuitting = false;
 
 // ---------------------------------------------------------------------------
+// kanban:// protocol registration
+// ---------------------------------------------------------------------------
+
+// Register the protocol before the app is ready — this is required on
+// Windows/Linux so the OS knows to route kanban:// URLs to this app even
+// on the very first launch. On macOS the Info.plist declared by
+// electron-builder handles association, but we still call the API for
+// development builds that don't go through the builder.
+registerProtocol(app);
+
+// ---------------------------------------------------------------------------
+// Protocol URL handling
+// ---------------------------------------------------------------------------
+
+/**
+ * Forward a `kanban://` URL to the runtime server's OAuth callback endpoint.
+ *
+ * When the OS delivers a `kanban://oauth/callback?code=...&state=...` URL,
+ * we translate it into a fetch against the runtime's HTTP server so that the
+ * existing server-side OAuth exchange logic can complete the flow.
+ *
+ * This keeps the OAuth completion logic entirely within the runtime server —
+ * the Electron shell only acts as a relay.
+ */
+function handleProtocolUrl(raw: string): void {
+	const parsed = parseProtocolUrl(raw);
+	if (!parsed) {
+		console.warn(`[desktop] Ignoring invalid protocol URL: ${raw}`);
+		return;
+	}
+
+	console.log(
+		`[desktop] Protocol URL received: path=${parsed.pathname} isOAuth=${parsed.isOAuthCallback}`,
+	);
+
+	if (!parsed.isOAuthCallback) {
+		// Future: handle other kanban:// paths here.
+		return;
+	}
+
+	if (!runtimeUrl) {
+		console.warn(
+			"[desktop] Received OAuth callback but runtime is not ready — dropping.",
+		);
+		return;
+	}
+
+	// Relay the OAuth parameters to the runtime server's MCP OAuth callback
+	// endpoint so the existing server-side logic can complete the exchange.
+	const relayUrl = new URL("/kanban-mcp/mcp-oauth-callback", runtimeUrl);
+	for (const [key, value] of parsed.searchParams.entries()) {
+		relayUrl.searchParams.set(key, value);
+	}
+
+	fetch(relayUrl.toString(), {
+		headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+	})
+		.then((res) => {
+			if (!res.ok) {
+				console.error(
+					`[desktop] OAuth relay failed: ${res.status} ${res.statusText}`,
+				);
+			}
+		})
+		.catch((err) => {
+			console.error("[desktop] OAuth relay error:", err);
+		});
+
+	// Bring the window to the foreground so the user sees the result.
+	if (mainWindow && !mainWindow.isDestroyed()) {
+		if (mainWindow.isMinimized()) mainWindow.restore();
+		mainWindow.show();
+		mainWindow.focus();
+	}
+}
+
+// macOS: the OS delivers the URL via the open-url event.
+// This must be registered before app.whenReady() to catch URLs that arrive
+// before the app finishes launching.
+app.on("open-url", (event, url) => {
+	event.preventDefault();
+	handleProtocolUrl(url);
+});
+
+// ---------------------------------------------------------------------------
 // Single instance lock
 // ---------------------------------------------------------------------------
 
@@ -240,7 +331,15 @@ const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
 	app.quit();
 } else {
-	app.on("second-instance", () => {
+	// Windows/Linux: when a second instance is launched with a kanban:// URL,
+	// the OS passes the URL as a command-line argument. The second instance
+	// forwards it here via the second-instance event, then exits.
+	app.on("second-instance", (_event, argv) => {
+		const protocolUrl = extractProtocolUrlFromArgv(argv);
+		if (protocolUrl) {
+			handleProtocolUrl(protocolUrl);
+		}
+
 		if (mainWindow) {
 			if (mainWindow.isMinimized()) mainWindow.restore();
 			mainWindow.focus();

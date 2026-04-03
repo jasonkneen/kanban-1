@@ -12,6 +12,15 @@ files:
   - dist/**/*
   - package.json
 
+# Custom protocol — registers kanban:// deep-links for OAuth callbacks.
+# On macOS this ends up in the Info.plist CFBundleURLTypes; on Windows it
+# registers the protocol in the registry; on Linux it creates the appropriate
+# XDG mime handler.
+protocols:
+  - name: Kanban
+    schemes:
+      - kanban
+
 # node-pty is a native addon that must be rebuilt for Electron's Node version.
 # @electron/rebuild handles this via the postinstall hook (electron-builder install-app-deps).
 
