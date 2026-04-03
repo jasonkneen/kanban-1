@@ -7,8 +7,9 @@ name: Desktop Publish
 # Trigger: manual workflow_dispatch with a tag input (e.g. v1.2.3).
 # The tag must already exist and match packages/desktop/package.json version.
 #
-# Code signing and notarization are handled by Tasks 3.2 and 3.3 and are not
-# wired up here yet — the artifacts are unsigned.
+# Code signing:
+#   macOS  — CSC_LINK + notarization via afterSign hook (Task 3.2)
+#   Windows — custom win.sign hook delegates to signtool / AzureSignTool (Task 3.3)
 # ──────────────────────────────────────────────────────────────────────────────
 
 on:
@@ -139,10 +140,24 @@ jobs:
 
       # Build distributable artifacts
       # GH_TOKEN is used by electron-builder to upload artifacts to the release.
+      # Signing env vars are platform-gated: the hooks are no-ops when vars are missing.
       - name: Build desktop artifacts
         run: npx electron-builder ${{ matrix.build-args }} --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # ── macOS Code Signing + Notarization ──
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # ── Windows Code Signing (PFX / OV) ──
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          # ── Windows Code Signing (Azure Trusted Signing / EV) ──
+          AZURE_SIGN_ENDPOINT: ${{ secrets.AZURE_SIGN_ENDPOINT }}
+          AZURE_SIGN_CERT_PROFILE: ${{ secrets.AZURE_SIGN_CERT_PROFILE }}
+          AZURE_SIGN_CODE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGN_CODE_SIGNING_ACCOUNT }}
 
       # Upload artifacts as a workflow artifact for traceability
       - name: Upload build artifacts
