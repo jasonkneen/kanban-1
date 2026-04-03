@@ -1,7 +1,7 @@
 /**
  * Auth token generation for the Electron ↔ runtime child process handshake.
  *
- * Stub for Task 1.3. Will be responsible for:
+ * Responsible for:
  * - Generating a cryptographically random ephemeral auth token on each app launch
  * - Injecting the token into the BrowserWindow's request headers via
  *   session.webRequest.onBeforeSendHeaders
@@ -16,6 +16,38 @@ import { randomBytes } from "node:crypto";
 /** Length of the generated auth token in bytes (64 hex chars). */
 const AUTH_TOKEN_BYTE_LENGTH = 32;
 
+/** HTTP header name used to carry the auth token. */
+export const AUTH_HEADER_NAME = "Authorization";
+
+// ---------------------------------------------------------------------------
+// Minimal Electron session type surface — keeps this module testable without
+// importing the full Electron types at runtime.
+// ---------------------------------------------------------------------------
+
+/** Callback signature expected by Electron's onBeforeSendHeaders. */
+export type BeforeSendHeadersCallback = (details: {
+	requestHeaders: Record<string, string>;
+}) => void;
+
+/** The details object Electron passes to the onBeforeSendHeaders listener. */
+export interface BeforeSendHeadersDetails {
+	url: string;
+	requestHeaders: Record<string, string>;
+}
+
+/** Minimal subset of Electron's `Session` that we actually need. */
+export interface ElectronSessionLike {
+	webRequest: {
+		onBeforeSendHeaders: (
+			filter: { urls: string[] },
+			listener: (
+				details: BeforeSendHeadersDetails,
+				callback: BeforeSendHeadersCallback,
+			) => void,
+		) => void;
+	};
+}
+
 /**
  * Generate a cryptographically random auth token.
  *
@@ -26,17 +58,33 @@ export function generateAuthToken(): string {
 }
 
 /**
- * Install the auth token as an Authorization header on all requests made
- * by the given Electron BrowserWindow session.
+ * Build the URL filter pattern for the given origin.
  *
- * Stub — the session.webRequest wiring will be implemented in Task 1.3.
+ * Electron's webRequest filter expects patterns like "http://localhost:1234/*".
+ * We normalise by ensuring the origin ends with "/*".
+ */
+export function buildOriginFilter(runtimeOrigin: string): string {
+	const base = runtimeOrigin.replace(/\/+$/, "");
+	return `${base}/*`;
+}
+
+/**
+ * Install the auth token as an Authorization header on all requests made
+ * by the given Electron BrowserWindow session that target the runtime origin.
+ *
+ * Uses `session.webRequest.onBeforeSendHeaders` so the token is injected at
+ * the network layer — it never touches the preload script or query parameters.
  */
 export function installAuthHeaderInterceptor(
-	_session: unknown,
-	_token: string,
-	_runtimeOrigin: string,
+	session: ElectronSessionLike,
+	token: string,
+	runtimeOrigin: string,
 ): void {
-	// TODO (Task 1.3): Use session.webRequest.onBeforeSendHeaders to add
-	// Authorization: Bearer <token> to all requests matching runtimeOrigin.
-	throw new Error("installAuthHeaderInterceptor() is not yet implemented (Task 1.3)");
+	const filter = { urls: [buildOriginFilter(runtimeOrigin)] };
+
+	session.webRequest.onBeforeSendHeaders(filter, (details, callback) => {
+		const requestHeaders = { ...details.requestHeaders };
+		requestHeaders[AUTH_HEADER_NAME] = `Bearer ${token}`;
+		callback({ requestHeaders });
+	});
 }
