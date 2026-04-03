@@ -31,11 +31,14 @@ protocols:
 
 # The child process entry point must be outside the asar archive so that
 # child_process.fork() can access it directly. node-pty native bindings
-# also need to be unpacked for the same reason.
+# also need to be unpacked for the same reason. tree-kill is unpacked so
+# that spawned helper processes can reliably kill grandchild process trees
+# on Windows (where native pid-tree walking is needed).
 asar: true
 asarUnpack:
   - "**/runtime-child.js"
   - "**/node_modules/node-pty/**"
+  - "**/node_modules/tree-kill/**"
 
 # ──────────────────────────────────────────
 # Auto-update: publish to GitHub Releases
@@ -89,18 +92,35 @@ dmg:
 # ──────────────────────────────────────────
 # Windows configuration
 # ──────────────────────────────────────────
+# electron-builder will auto-convert build/icon.png → .ico when no .ico is
+# present.  Provide a dedicated icon.ico in build/ for faster builds / CI
+# that lacks image-conversion tools.
 win:
   target:
     - target: nsis
       arch:
         - x64
   requestedExecutionLevel: asInvoker
+  # icon is resolved from buildResources/icon.ico (or .png → auto-converted)
 
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
   perMachine: false
   artifactName: "${productName}-Setup-${version}-${arch}.${ext}"
+  # Shortcuts
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Kanban
+  # Uninstaller
+  deleteAppDataOnUninstall: false
+  uninstallDisplayName: Kanban ${version}
+  # Post-install behaviour
+  runAfterFinish: true
+  # Pack the elevator helper so electron-updater can request elevation later
+  packElevateHelper: true
+  # Unicode NSIS (default true, stated explicitly for clarity)
+  unicode: true
 
 # ──────────────────────────────────────────
 # Linux configuration
