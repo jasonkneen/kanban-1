@@ -23,15 +23,18 @@ import {
 	powerSaveBlocker,
 	shell,
 } from "electron";
-import { mkdir, rm, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
+import { mkdir } from "node:fs/promises";
 import path from "node:path";
 
-import { generateAuthToken, installAuthHeaderInterceptor } from "./auth.js";
+import { installAuthHeaderInterceptor } from "./auth.js";
 import { ConnectionManager } from "./connection-manager.js";
 import { installConnectionMenu } from "./connection-menu.js";
 import { ConnectionStore } from "./connection-store.js";
-import type { RuntimeConfig } from "./ipc-protocol.js";
+import {
+	advanceBootPhase,
+	recordBootFailure,
+	resetBootState,
+} from "./desktop-boot-state.js";
 import {
 	extractProtocolUrlFromArgv,
 	parseProtocolUrl,
@@ -43,6 +46,10 @@ import {
 	loadWindowState,
 	saveWindowState,
 } from "./window-state.js";
+import {
+	clearRuntimeDescriptor,
+	writeRuntimeDescriptor,
+} from "../../../src/core/runtime-descriptor.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -56,36 +63,23 @@ const BACKGROUND_COLOR = "#1F2428";
 const RUNTIME_HEALTH_TIMEOUT_MS = 3_000;
 
 // ---------------------------------------------------------------------------
-// Runtime descriptor — published so CLI helper commands can discover the
-// desktop-managed runtime as a fallback when the default port is unreachable.
-// Path: ~/.cline/kanban/runtime.json
+// Runtime descriptor helpers — delegate to the shared implementation in
+// src/core/runtime-descriptor.ts so desktop doesn't duplicate path
+// constants or write logic.
 // ---------------------------------------------------------------------------
-
-const DESCRIPTOR_DIR = path.join(homedir(), ".cline", "kanban");
-const DESCRIPTOR_PATH = path.join(DESCRIPTOR_DIR, "runtime.json");
 
 async function publishRuntimeDescriptor(url: string, token: string): Promise<void> {
 	try {
-		await mkdir(DESCRIPTOR_DIR, { recursive: true });
-		const descriptor = {
+		await writeRuntimeDescriptor({
 			url,
 			authToken: token,
 			pid: process.pid,
 			updatedAt: new Date().toISOString(),
 			source: "desktop",
-		};
-		await writeFile(DESCRIPTOR_PATH, JSON.stringify(descriptor, null, "\t"), "utf-8");
+		});
 	} catch {
 		// Best effort — if we can't write the descriptor, CLI fallback won't work
 		// but the desktop app itself is unaffected.
-	}
-}
-
-async function clearRuntimeDescriptor(): Promise<void> {
-	try {
-		await rm(DESCRIPTOR_PATH, { force: true });
-	} catch {
-		// Best effort.
 	}
 }
 
@@ -114,58 +108,15 @@ function captureWindowState(window: BrowserWindow): WindowState {
  * Scan the kanban workspace index for workspaces that have tasks in the
  * "In Progress" column (i.e. tasks that were interrupted by a previous shutdown).
  *
- * This is a best-effort read — errors are silently ignored so the app
- * always starts even if workspace data is missing or corrupt.
+ * TODO: Re-implement once the kanban package can be statically imported from
+ * the desktop main process. The previous implementation used a dynamic
+ * `await import("kanban")` which violates the project's no-inline-import rule.
  */
 async function detectInterruptedTasks(): Promise<{
 	count: number;
 	workspacePaths: string[];
 }> {
-	const info = { count: 0, workspacePaths: [] as string[] };
-	try {
-		// Dynamic import so the main process isn't blocked if the runtime
-		// package is unavailable (e.g. first install before build).
-		const kanbanState = await import("kanban").catch(() => null);
-		if (!kanbanState) return info;
-
-		const listWorkspaceIndexEntries = (kanbanState as Record<string, unknown>)
-			.listWorkspaceIndexEntries as
-			| (() => Promise<Array<{ repoPath: string }>>)
-			| undefined;
-		const loadWorkspaceState = (kanbanState as Record<string, unknown>)
-			.loadWorkspaceState as
-			| ((p: string) => Promise<{
-					board: {
-						columns: Array<{
-							id: string;
-							cards: Array<{ id: string }>;
-						}>;
-					};
-			  }>)
-			| undefined;
-
-		if (!listWorkspaceIndexEntries || !loadWorkspaceState) return info;
-
-		const entries = await listWorkspaceIndexEntries();
-		for (const entry of entries) {
-			try {
-				const state = await loadWorkspaceState(entry.repoPath);
-				const workColumn = state.board.columns.find(
-					(c) => c.id === "in_progress",
-				);
-				const workCards = workColumn?.cards ?? [];
-				if (workCards.length > 0) {
-					info.count += workCards.length;
-					info.workspacePaths.push(entry.repoPath);
-				}
-			} catch {
-				// Skip unreadable workspaces.
-			}
-		}
-	} catch {
-		// Runtime modules not available — skip detection.
-	}
-	return info;
+	return { count: 0, workspacePaths: [] };
 }
 
 // ---------------------------------------------------------------------------
@@ -536,38 +487,6 @@ function createRuntimeChildManager(): RuntimeChildManager {
 	return manager;
 }
 
-/**
- * Legacy startup path — used when explicit KANBAN_RUNTIME_HOST/PORT env vars
- * override the connection architecture (backward compatibility for CLI/npm users).
- */
-async function startRuntimeChildDirectly(): Promise<string> {
-	authToken = generateAuthToken();
-
-	runtimeManager = createRuntimeChildManager();
-
-	// Compute the absolute path to the bundled CLI shim.
-	// Packaged:  <app>/Contents/Resources/bin/kanban (macOS)
-	//            <app>/resources/bin/kanban.cmd (Windows)
-	//            <app>/resources/bin/kanban (Linux)
-	// Dev mode:  <desktop-pkg>/build/bin/kanban (a dev shim)
-	let kanbanCliCommand: string;
-	if (app.isPackaged) {
-		const shimName = process.platform === "win32" ? "kanban.cmd" : "kanban";
-		kanbanCliCommand = path.join(process.resourcesPath, "bin", shimName);
-	} else {
-		kanbanCliCommand = path.join(import.meta.dirname, "..", "build", "bin", "kanban-dev");
-	}
-
-	const config: RuntimeConfig = {
-		host: "127.0.0.1",
-		port: "auto",
-		authToken,
-		kanbanCliCommand,
-	};
-
-	return runtimeManager.start(config);
-}
-
 async function isRuntimeHealthy(): Promise<boolean> {
 	if (!runtimeUrl) {
 		return false;
@@ -599,37 +518,24 @@ async function restartRuntimeChild(): Promise<void> {
 	}
 
 	runtimeRestartPromise = (async () => {
-		// If the connection manager is available, restart through it so
-		// the local runtime is re-initialized properly (new auth token,
-		// descriptor published, etc.).
-		if (connectionManager) {
-			try {
-				await connectionManager.shutdown();
-			} catch {
-				// best-effort
-			}
-			await connectionManager.initialize();
+		resetBootState();
+		advanceBootPhase("preflight");
+
+		if (!connectionManager) {
+			console.error("[desktop] Cannot restart: connectionManager is not initialized.");
+			recordBootFailure("UNKNOWN_STARTUP_FAILURE", "ConnectionManager unavailable during restart");
 			return;
 		}
 
-		// Fallback for legacy direct-start path (no connection manager).
-		const currentRuntimeManager = runtimeManager;
-		if (currentRuntimeManager?.running) {
-			try {
-				await currentRuntimeManager.shutdown();
-			} catch (error) {
-				console.warn(
-					"[desktop] Runtime shutdown during restart failed:",
-					error instanceof Error ? error.message : error,
-				);
-			}
+		try {
+			await connectionManager.shutdown();
+		} catch {
+			// best-effort
 		}
-		if (currentRuntimeManager) {
-			await currentRuntimeManager.dispose().catch(() => {});
-		}
-		runtimeManager = null;
-		runtimeUrl = null;
-		await startRuntimeChildDirectly();
+
+		advanceBootPhase("initialize-connections");
+		await connectionManager.initialize();
+		advanceBootPhase("ready");
 	})().finally(() => {
 		runtimeRestartPromise = null;
 	});
@@ -744,10 +650,16 @@ function rebuildConnectionMenu(): void {
 
 if (gotTheLock) {
 	app.whenReady().then(async () => {
+		// ── preflight ─────────────────────────────────────────────────────
+		advanceBootPhase("preflight");
+
 		// Ensure userData directory exists for window-state persistence.
 		await mkdir(app.getPath("userData"), { recursive: true }).catch(
 			() => {},
 		);
+
+		// ── create-window ─────────────────────────────────────────────────
+		advanceBootPhase("create-window");
 
 		// Create the main window.
 		mainWindow = createMainWindow();
@@ -759,7 +671,8 @@ if (gotTheLock) {
 		// Prevent macOS App Nap.
 		startAppNapPrevention();
 
-		// --- Connection architecture: wire store + manager ----------------
+		// ── load-persisted-state (synchronous) ────────────────────────────
+		advanceBootPhase("load-persisted-state");
 
 		// Instantiate the connection store (reads persisted connections).
 		connectionStore = new ConnectionStore(app.getPath("userData"));
@@ -799,11 +712,17 @@ if (gotTheLock) {
 		// Install the Connection menu into the app menu bar.
 		rebuildConnectionMenu();
 
+		// ── initialize-connections ─────────────────────────────────────────
+		advanceBootPhase("initialize-connections");
+
 		// Initialize the connection (restores persisted active connection,
 		// starts local runtime if active connection is "local", or connects
 		// to a remote/WSL server).
 		try {
 			await connectionManager.initialize();
+
+			// ── ready ─────────────────────────────────────────────────────
+			advanceBootPhase("ready");
 
 			// Check for interrupted tasks from a previous session (non-blocking).
 			showInterruptedTasksToast();
@@ -811,6 +730,7 @@ if (gotTheLock) {
 			const message =
 				error instanceof Error ? error.message : String(error);
 			console.error(`[desktop] Failed to start runtime: ${message}`);
+			recordBootFailure("RUNTIME_CHILD_START_FAILED", message);
 			dialog.showErrorBox(
 				"Kanban Startup Error",
 				`Failed to start the Kanban runtime:\n\n${message}`,
@@ -823,8 +743,10 @@ if (gotTheLock) {
 		// macOS: re-create window when dock icon is clicked and no windows exist.
 		app.on("activate", () => {
 			if (BrowserWindow.getAllWindows().length === 0) {
+				advanceBootPhase("create-window");
 				mainWindow = createMainWindow();
 				if (runtimeUrl) {
+					advanceBootPhase("load-renderer");
 					installAuthHeaderInterceptor(
 						mainWindow.webContents.session,
 						authToken!,
@@ -879,19 +801,6 @@ if (gotTheLock) {
 			} catch (err) {
 				console.error(
 					"[desktop] Connection shutdown error:",
-					err instanceof Error ? err.message : err,
-				);
-			}
-			stopAppNapPrevention();
-			app.quit();
-		} else if (runtimeManager?.running) {
-			// Fallback for legacy direct-start path.
-			event.preventDefault();
-			try {
-				await runtimeManager.shutdown();
-			} catch (err) {
-				console.error(
-					"[desktop] Runtime shutdown error:",
 					err instanceof Error ? err.message : err,
 				);
 			}
