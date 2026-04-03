@@ -307,6 +307,8 @@ export type RuntimeClineMcpServerAuthStatus = z.infer<typeof runtimeClineMcpServ
 
 export const runtimeStateStreamSnapshotMessageSchema = z.object({
 	type: z.literal("snapshot"),
+	isLocal: z.boolean(),
+	runtimeVersion: z.string(),
 	currentProjectId: z.string().nullable(),
 	projects: z.array(runtimeProjectSummarySchema),
 	workspaceState: runtimeWorkspaceStateResponseSchema.nullable(),

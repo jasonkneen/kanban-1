@@ -1,6 +1,8 @@
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { createServer as createNetServer } from "node:net";
+import { join } from "node:path";
 import { loadGlobalRuntimeConfig, loadRuntimeConfig } from "./config/runtime-config";
 import { createGitProcessEnv } from "./core/git-process-env";
 import {
@@ -14,10 +16,21 @@ import { runScopedCommand } from "./core/scoped-command";
 import type { RuntimeStateHub } from "./server/runtime-state-hub";
 import type { TerminalSessionManager } from "./terminal/session-manager";
 
+function readRuntimeVersion(): string {
+	try {
+		const packageJsonPath = join(__dirname, "..", "package.json");
+		const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf-8")) as { version: string };
+		return packageJson.version;
+	} catch {
+		return "0.0.0";
+	}
+}
+
 export interface RuntimeOptions {
 	host?: string;
 	port?: number | "auto";
 	authToken?: string;
+	isLocal?: boolean;
 	openInBrowser?: boolean;
 	pickDirectory?: () => Promise<string | null>;
 	warn?: (message: string) => void;
@@ -94,7 +107,9 @@ async function findAvailableRuntimePort(startPort: number, host: string): Promis
 async function bootServer(
 	warn: (message: string) => void,
 	pickDirectory: () => Promise<string | null>,
-	directoryBrowseRoot?: string,
+	directoryBrowseRoot: string | undefined,
+	isLocal: boolean,
+	runtimeVersion: string,
 ): Promise<{
 	url: string;
 	close: () => Promise<void>;
@@ -128,6 +143,8 @@ async function bootServer(
 	});
 	runtimeStateHub = createRuntimeStateHub({
 		workspaceRegistry,
+		isLocal,
+		runtimeVersion,
 	});
 	const runtimeHub = runtimeStateHub;
 	for (const { workspaceId, terminalManager } of workspaceRegistry.listManagedWorkspaces()) {
@@ -197,6 +214,8 @@ export async function startRuntime(options?: RuntimeOptions): Promise<RuntimeHan
 		return Promise.resolve(pickDirectoryPathFromSystemDialog());
 	};
 	const pickDirectory = options?.pickDirectory ?? defaultPickDirectory;
+	const isLocal = options?.isLocal ?? true;
+	const runtimeVersion = readRuntimeVersion();
 
 	setKanbanRuntimeHost(host);
 
@@ -210,7 +229,7 @@ export async function startRuntime(options?: RuntimeOptions): Promise<RuntimeHan
 	const isAutoPort = portOption === "auto";
 
 	const boot = async (): Promise<RuntimeHandle> => {
-		const server = await bootServer(warn, pickDirectory, options?.directoryBrowseRoot);
+		const server = await bootServer(warn, pickDirectory, options?.directoryBrowseRoot, isLocal, runtimeVersion);
 		return {
 			url: server.url,
 			shutdown: async (shutdownOptions?: RuntimeShutdownOptions) => {
