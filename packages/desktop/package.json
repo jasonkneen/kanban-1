@@ -23,6 +23,7 @@
 		"postinstall": "electron-builder install-app-deps"
 	},
 	"devDependencies": {
+		"@electron/notarize": "^3.0.0",
 		"@electron/rebuild": "^3.7.1",
 		"@types/node": "^22.10.5",
 		"electron": "^33.4.0",

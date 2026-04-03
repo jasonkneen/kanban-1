@@ -12,6 +12,13 @@
 #   - macOS with Xcode Command Line Tools
 #   - Node.js >= 20
 #   - npm dependencies installed (npm install)
+#
+# Code signing + notarization (optional — skipped when env vars are missing):
+#   CSC_LINK             — Path or base64 of the Developer ID Application .p12 cert
+#   CSC_KEY_PASSWORD     — Password for the .p12 certificate
+#   APPLE_ID             — Apple Developer account email
+#   APPLE_ID_PASSWORD    — App-specific password (generate at appleid.apple.com)
+#   APPLE_TEAM_ID        — 10-character Apple Developer Team ID
 # ───────────────────────────────────────────────────────────────────────
 set -euo pipefail
 

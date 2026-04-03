@@ -7,6 +7,11 @@ directories:
   output: out
   buildResources: build
 
+# afterSign hook — notarizes the macOS .app bundle via Apple notarytool.
+# Requires APPLE_ID, APPLE_ID_PASSWORD, and APPLE_TEAM_ID env vars.
+# The hook is a no-op on non-mac platforms or when env vars are missing.
+afterSign: ./scripts/notarize.cjs
+
 # Files to include in the app bundle
 files:
   - dist/**/*
