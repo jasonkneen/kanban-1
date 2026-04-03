@@ -35,6 +35,7 @@ import {
 	recordBootFailure,
 	resetBootState,
 } from "./desktop-boot-state.js";
+import { runDesktopPreflight } from "./desktop-preflight.js";
 import {
 	extractProtocolUrlFromArgv,
 	parseProtocolUrl,
@@ -657,6 +658,36 @@ if (gotTheLock) {
 		await mkdir(app.getPath("userData"), { recursive: true }).catch(
 			() => {},
 		);
+
+		// Run preflight checks to ensure critical resources exist.
+		const preloadPath = path.join(import.meta.dirname, "preload.js");
+		const childScriptPath = path.join(import.meta.dirname, "runtime-child-entry.js");
+		let cliShimPath: string;
+		if (app.isPackaged) {
+			const shimName = process.platform === "win32" ? "kanban.cmd" : "kanban";
+			cliShimPath = path.join(process.resourcesPath, "bin", shimName);
+		} else {
+			cliShimPath = path.join(import.meta.dirname, "..", "build", "bin", "kanban-dev");
+		}
+
+		const preflightResult = runDesktopPreflight({
+			preloadPath,
+			childScriptPath,
+			cliShimPath,
+			isPackaged: app.isPackaged,
+		});
+
+		if (!preflightResult.ok) {
+			const details = preflightResult.failures
+				.map((f) => `[${f.code}] ${f.message}`)
+				.join("\n\n");
+			recordBootFailure("PREFLIGHT_FAILED", details);
+			dialog.showErrorBox(
+				"Kanban Startup Error",
+				`Startup preflight failed — critical resources are missing:\n\n${details}`,
+			);
+			return;
+		}
 
 		// ── create-window ─────────────────────────────────────────────────
 		advanceBootPhase("create-window");
