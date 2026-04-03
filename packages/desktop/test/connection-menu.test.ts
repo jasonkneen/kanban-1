@@ -18,6 +18,11 @@ vi.mock("electron", () => ({
 		on: vi.fn(),
 		removeListener: vi.fn(),
 	},
+	safeStorage: {
+		isEncryptionAvailable: vi.fn(() => false),
+		encryptString: vi.fn((s: string) => Buffer.from(s)),
+		decryptString: vi.fn((b: Buffer) => b.toString()),
+	},
 }));
 
 import { ConnectionStore } from "../src/connection-store.js";

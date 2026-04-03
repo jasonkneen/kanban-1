@@ -5,12 +5,19 @@
  * Remote connections may also carry an auth token (bearer token for the
  * remote server).
  *
+ * Auth tokens are encrypted at rest via Electron's safeStorage API when the
+ * platform keychain is available. On systems where encryption is unavailable
+ * (e.g. Linux without a keyring), tokens are stored in plaintext and the
+ * {@link ConnectionStore.isEncryptionAvailable} flag is exposed so the UI
+ * can show an appropriate warning.
+ *
  * The "local" connection (id === "local") is always present and cannot be
  * removed. It represents the bundled runtime child process.
  */
 
 import fs from "node:fs";
 import path from "node:path";
+import { safeStorage } from "electron";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -31,6 +38,21 @@ export interface ConnectionStoreData {
 	/** Ordered list of saved connections (first is always "local"). */
 	connections: SavedConnection[];
 	/** ID of the currently active connection. */
+	activeConnectionId: string;
+}
+
+/**
+ * Shape of a connection as persisted to disk. When the auth token has been
+ * encrypted via safeStorage, `authToken` holds the base64-encoded ciphertext
+ * and `isEncrypted` is `true`.
+ */
+interface PersistedConnection extends Omit<SavedConnection, "authToken"> {
+	authToken?: string;
+	isEncrypted?: boolean;
+}
+
+interface PersistedStoreData {
+	connections: PersistedConnection[];
 	activeConnectionId: string;
 }
 
@@ -81,6 +103,15 @@ export class ConnectionStore {
 	}
 
 	// -- Accessors -----------------------------------------------------------
+
+	/**
+	 * Whether the platform keychain is available for encrypting auth tokens.
+	 * When `false`, tokens are stored in plaintext and the UI should warn
+	 * the user.
+	 */
+	get isEncryptionAvailable(): boolean {
+		return safeStorage.isEncryptionAvailable();
+	}
 
 	/** Return all saved connections (local is always first). */
 	getConnections(): ReadonlyArray<SavedConnection> {
@@ -167,10 +198,35 @@ export class ConnectionStore {
 	private load(): ConnectionStoreData {
 		try {
 			const raw = fs.readFileSync(this.filePath, "utf-8");
-			const parsed = JSON.parse(raw) as ConnectionStoreData;
+			const persisted = JSON.parse(raw) as PersistedStoreData;
+
+			// Decrypt auth tokens that were encrypted on a previous persist.
+			const connections: SavedConnection[] = (persisted.connections ?? []).map(
+				(pc) => {
+					const { isEncrypted, ...conn } = pc;
+					if (isEncrypted && conn.authToken) {
+						try {
+							conn.authToken = safeStorage.decryptString(
+								Buffer.from(conn.authToken, "base64"),
+							);
+						} catch {
+							// If decryption fails (e.g. keychain changed), clear the
+							// token so the user is prompted to re-enter it.
+							conn.authToken = undefined;
+						}
+					}
+					return conn;
+				},
+			);
+
+			const parsed: ConnectionStoreData = {
+				connections,
+				activeConnectionId: persisted.activeConnectionId,
+			};
+
 			// Ensure "local" is always present and first.
-			if (!parsed.connections?.some((c) => c.id === "local")) {
-				parsed.connections = [LOCAL_CONNECTION, ...(parsed.connections ?? [])];
+			if (!parsed.connections.some((c) => c.id === "local")) {
+				parsed.connections = [LOCAL_CONNECTION, ...parsed.connections];
 			} else {
 				// Move local to front if it isn't.
 				const localIdx = parsed.connections.findIndex((c) => c.id === "local");
@@ -189,8 +245,29 @@ export class ConnectionStore {
 	}
 
 	private persist(): void {
+		const canEncrypt = safeStorage.isEncryptionAvailable();
+
+		const persistedConnections: PersistedConnection[] = this.data.connections.map(
+			(conn) => {
+				if (conn.authToken && canEncrypt) {
+					return {
+						...conn,
+						authToken: safeStorage.encryptString(conn.authToken).toString("base64"),
+						isEncrypted: true,
+					};
+				}
+				// No token or encryption unavailable — store as-is.
+				return { ...conn };
+			},
+		);
+
+		const persisted: PersistedStoreData = {
+			connections: persistedConnections,
+			activeConnectionId: this.data.activeConnectionId,
+		};
+
 		const dir = path.dirname(this.filePath);
 		fs.mkdirSync(dir, { recursive: true });
-		fs.writeFileSync(this.filePath, JSON.stringify(this.data, null, "\t"), "utf-8");
+		fs.writeFileSync(this.filePath, JSON.stringify(persisted, null, "\t"), "utf-8");
 	}
 }
