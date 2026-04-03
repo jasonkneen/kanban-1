@@ -23,6 +23,7 @@ import {
 	powerSaveBlocker,
 	shell,
 } from "electron";
+import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 
@@ -49,6 +50,7 @@ import {
 } from "./window-state.js";
 import {
 	clearRuntimeDescriptor,
+	evaluateDescriptorTrust,
 	writeRuntimeDescriptor,
 } from "../../../src/core/runtime-descriptor.js";
 
@@ -64,6 +66,13 @@ const BACKGROUND_COLOR = "#1F2428";
 const RUNTIME_HEALTH_TIMEOUT_MS = 3_000;
 
 // ---------------------------------------------------------------------------
+// Desktop session identity — unique per app launch, used to detect stale
+// descriptors left behind by a prior desktop session that crashed.
+// ---------------------------------------------------------------------------
+
+const desktopSessionId: string = randomUUID();
+
+// ---------------------------------------------------------------------------
 // Runtime descriptor helpers — delegate to the shared implementation in
 // src/core/runtime-descriptor.ts so desktop doesn't duplicate path
 // constants or write logic.
@@ -77,6 +86,7 @@ async function publishRuntimeDescriptor(url: string, token: string): Promise<voi
 			pid: process.pid,
 			updatedAt: new Date().toISOString(),
 			source: "desktop",
+			desktopSessionId,
 		});
 	} catch {
 		// Best effort — if we can't write the descriptor, CLI fallback won't work
@@ -687,6 +697,39 @@ if (gotTheLock) {
 				`Startup preflight failed — critical resources are missing:\n\n${details}`,
 			);
 			return;
+		}
+
+		// ── descriptor trust check ───────────────────────────────────────
+		// Evaluate whether a leftover runtime descriptor from a prior session
+		// should be trusted.  Stale descriptors with dead PIDs are cleaned up
+		// automatically; orphaned desktop descriptors are logged as warnings.
+		const trustResult = await evaluateDescriptorTrust(desktopSessionId);
+
+		switch (trustResult.reason) {
+			case "pid-dead":
+				console.log(
+					"[desktop] Cleaned up stale descriptor from prior session (PID was dead).",
+				);
+				break;
+			case "prior-desktop-session":
+				console.warn(
+					"[desktop] Found descriptor from a prior desktop session with a live PID — " +
+						"ignoring and starting a fresh runtime.",
+				);
+				break;
+			case "terminal-owned":
+				console.log(
+					"[desktop] Found terminal-owned descriptor — " +
+						"desktop will start its own runtime on a separate port.",
+				);
+				break;
+			case "current-session":
+				// Should not normally happen during initial startup, but harmless.
+				console.log("[desktop] Descriptor already belongs to this session.");
+				break;
+			case "no-descriptor":
+				// Nothing on disk — expected for a clean first launch.
+				break;
 		}
 
 		// ── create-window ─────────────────────────────────────────────────

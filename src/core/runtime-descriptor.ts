@@ -30,6 +30,8 @@ export interface RuntimeDescriptor {
 	updatedAt: string;
 	/** Where the runtime was launched from: "desktop" or "cli". */
 	source: "desktop" | "cli";
+	/** Unique ID per desktop app launch — used to detect stale descriptors from prior sessions. */
+	desktopSessionId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -94,7 +96,8 @@ function isValidDescriptor(value: unknown): value is RuntimeDescriptor {
 		typeof obj.authToken === "string" &&
 		typeof obj.pid === "number" &&
 		typeof obj.updatedAt === "string" &&
-		(obj.source === "desktop" || obj.source === "cli")
+		(obj.source === "desktop" || obj.source === "cli") &&
+		(obj.desktopSessionId === undefined || typeof obj.desktopSessionId === "string")
 	);
 }
 
@@ -112,4 +115,74 @@ export function isDescriptorStale(descriptor: RuntimeDescriptor): boolean {
 	} catch {
 		return true;
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Desktop session matching — checks whether a desktop-owned descriptor
+// belongs to the currently running desktop session.
+// ---------------------------------------------------------------------------
+
+export function isDesktopDescriptorFromCurrentSession(
+	descriptor: RuntimeDescriptor,
+	currentSessionId: string,
+): boolean {
+	return descriptor.source === "desktop" && descriptor.desktopSessionId === currentSessionId;
+}
+
+// ---------------------------------------------------------------------------
+// Descriptor trust evaluation — structured decision about whether a
+// persisted descriptor should be trusted by the current desktop session.
+// ---------------------------------------------------------------------------
+
+export type DescriptorTrustReason =
+	| "current-session"
+	| "terminal-owned"
+	| "pid-dead"
+	| "prior-desktop-session"
+	| "no-descriptor";
+
+export interface DescriptorTrustResult {
+	trusted: boolean;
+	reason: DescriptorTrustReason;
+	descriptor: RuntimeDescriptor | null;
+}
+
+/**
+ * Read the runtime descriptor and decide whether the current desktop session
+ * should trust it.
+ *
+ * - **no-descriptor** — file absent or invalid → not trusted (nothing to trust).
+ * - **terminal-owned** — source is "cli" → trusted (never interfere with CLI runtimes).
+ * - **current-session** — desktop descriptor with matching session ID → trusted.
+ * - **pid-dead** — desktop descriptor from a prior session whose PID is dead →
+ *   cleaned up and not trusted.
+ * - **prior-desktop-session** — desktop descriptor from a different session whose
+ *   PID is still alive → not trusted (orphan policy deferred to Task 6).
+ */
+export async function evaluateDescriptorTrust(currentSessionId: string): Promise<DescriptorTrustResult> {
+	const descriptor = await readRuntimeDescriptor();
+
+	if (!descriptor) {
+		return { trusted: false, reason: "no-descriptor", descriptor: null };
+	}
+
+	// CLI-owned descriptors are always trusted — desktop never interferes.
+	if (descriptor.source === "cli") {
+		return { trusted: true, reason: "terminal-owned", descriptor };
+	}
+
+	// Desktop descriptor from the current session — trust it.
+	if (isDesktopDescriptorFromCurrentSession(descriptor, currentSessionId)) {
+		return { trusted: true, reason: "current-session", descriptor };
+	}
+
+	// Desktop descriptor from a prior session — check PID liveness.
+	if (isDescriptorStale(descriptor)) {
+		// Dead PID: clean up the stale descriptor.
+		await clearRuntimeDescriptor();
+		return { trusted: false, reason: "pid-dead", descriptor };
+	}
+
+	// PID is still alive but belongs to a different desktop session — orphan.
+	return { trusted: false, reason: "prior-desktop-session", descriptor };
 }
