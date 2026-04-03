@@ -39,11 +39,13 @@ export interface BeforeSendHeadersDetails {
 export interface ElectronSessionLike {
 	webRequest: {
 		onBeforeSendHeaders: (
-			filter: { urls: string[] },
-			listener: (
-				details: BeforeSendHeadersDetails,
-				callback: BeforeSendHeadersCallback,
-			) => void,
+			filter: { urls: string[] } | null,
+			listener:
+				| ((
+						details: BeforeSendHeadersDetails,
+						callback: BeforeSendHeadersCallback,
+				  ) => void)
+				| null,
 		) => void;
 	};
 }
@@ -74,12 +76,14 @@ export function buildOriginFilter(runtimeOrigin: string): string {
  *
  * Uses `session.webRequest.onBeforeSendHeaders` so the token is injected at
  * the network layer — it never touches the preload script or query parameters.
+ *
+ * Returns a dispose function that removes the interceptor.
  */
 export function installAuthHeaderInterceptor(
 	session: ElectronSessionLike,
 	token: string,
 	runtimeOrigin: string,
-): void {
+): () => void {
 	const filter = { urls: [buildOriginFilter(runtimeOrigin)] };
 
 	session.webRequest.onBeforeSendHeaders(filter, (details, callback) => {
@@ -87,4 +91,9 @@ export function installAuthHeaderInterceptor(
 		requestHeaders[AUTH_HEADER_NAME] = `Bearer ${token}`;
 		callback({ requestHeaders });
 	});
+
+	return () => {
+		// Remove the handler by passing null.
+		session.webRequest.onBeforeSendHeaders(null, null);
+	};
 }

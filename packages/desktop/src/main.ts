@@ -2,15 +2,25 @@
  * Electron main process entry point.
  *
  * Creates a BrowserWindow and manages the application lifecycle.
- * The runtime child process management (Task 1.2) and auth token
- * generation (Task 1.3) are stubbed and will be wired in later phases.
+ * Wires up the connection store, connection manager, and connection menu
+ * so the user can switch between local and remote Kanban servers.
  */
 
 import { app, BrowserWindow } from "electron";
 import path from "node:path";
+import { RuntimeChildManager } from "./runtime-child.js";
+import { ConnectionStore } from "./connection-store.js";
+import { ConnectionManager } from "./connection-manager.js";
+import { installConnectionMenu } from "./connection-menu.js";
 
 /** The single application window. Null until created. */
 let mainWindow: BrowserWindow | null = null;
+
+/** Connection manager — created after the window is ready. */
+let connectionManager: ConnectionManager | null = null;
+
+/** Connection store — shared between manager and menu rebuilder. */
+let connectionStore: ConnectionStore | null = null;
 
 function createMainWindow(): BrowserWindow {
 	const window = new BrowserWindow({
@@ -31,18 +41,72 @@ function createMainWindow(): BrowserWindow {
 	return window;
 }
 
-app.whenReady().then(() => {
+/**
+ * Rebuild the Connection menu (called after any connection change).
+ */
+function rebuildMenu(): void {
+	if (!mainWindow || !connectionManager || !connectionStore) return;
+	installConnectionMenu({
+		store: connectionStore,
+		manager: connectionManager,
+		window: mainWindow,
+	});
+}
+
+app.whenReady().then(async () => {
 	mainWindow = createMainWindow();
 
-	// TODO (Task 1.4): Start the runtime child process, wait for the "ready"
-	// IPC message, then load its URL. For now, show a placeholder page.
-	mainWindow.loadURL("about:blank");
+	// -- Connection infrastructure -------------------------------------------
+	const store = new ConnectionStore(app.getPath("userData"));
+	connectionStore = store;
+
+	const childManager = new RuntimeChildManager({
+		childScriptPath: path.join(
+			import.meta.dirname,
+			"..",
+			"node_modules",
+			"kanban",
+			"dist",
+			"runtime-child.js",
+		),
+	});
+
+	connectionManager = new ConnectionManager({
+		window: mainWindow,
+		childManager,
+		store,
+		onConnectionChanged: rebuildMenu,
+	});
+
+	// Build initial menu.
+	installConnectionMenu({
+		store,
+		manager: connectionManager,
+		window: mainWindow,
+	});
+
+	// Initialize the active connection (starts local or loads remote).
+	await connectionManager.initialize();
 
 	// macOS: re-create window when dock icon is clicked and no windows exist.
-	app.on("activate", () => {
+	app.on("activate", async () => {
 		if (BrowserWindow.getAllWindows().length === 0) {
 			mainWindow = createMainWindow();
-			mainWindow.loadURL("about:blank");
+
+			connectionManager = new ConnectionManager({
+				window: mainWindow,
+				childManager,
+				store,
+				onConnectionChanged: rebuildMenu,
+			});
+
+			installConnectionMenu({
+				store,
+				manager: connectionManager,
+				window: mainWindow,
+			});
+
+			await connectionManager.initialize();
 		}
 	});
 });
@@ -56,8 +120,9 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
-	// TODO (Task 1.4): Send shutdown message to runtime child process,
-	// wait for "shutdown-complete", then force-kill after 5s timeout.
+	if (connectionManager) {
+		void connectionManager.shutdown();
+	}
 });
 
-export { mainWindow };
+export { mainWindow, connectionManager };

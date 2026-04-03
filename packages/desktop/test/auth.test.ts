@@ -164,4 +164,16 @@ describe("installAuthHeaderInterceptor", () => {
 			`Bearer ${customToken}`,
 		);
 	});
+
+	it("returns a dispose function that removes the interceptor", () => {
+		const { session, onBeforeSendHeaders } = createMockSession();
+		const dispose = installAuthHeaderInterceptor(session, TOKEN, ORIGIN);
+
+		expect(dispose).toBeTypeOf("function");
+		expect(onBeforeSendHeaders).toHaveBeenCalledTimes(1);
+
+		dispose();
+		// Dispose calls onBeforeSendHeaders again with null to clear.
+		expect(onBeforeSendHeaders).toHaveBeenCalledTimes(2);
+	});
 });
