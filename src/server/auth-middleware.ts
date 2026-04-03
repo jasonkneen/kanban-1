@@ -41,6 +41,28 @@ function extractBearerToken(req: IncomingMessage): string | null {
 	return parts[1] ?? null;
 }
 
+/**
+ * Extract the auth token from a `kanban-auth` cookie.
+ *
+ * This is the fallback for WebSocket upgrade requests in Electron desktop
+ * mode.  Electron's `session.webRequest.onBeforeSendHeaders` intercepts
+ * regular HTTP requests but **not** WebSocket upgrades, so the renderer's
+ * `new WebSocket()` call never receives the `Authorization` header.
+ * A session cookie set by the main process before `loadURL` is sent on
+ * every request — including WS upgrades — giving us a transparent auth
+ * channel that doesn't require web-UI changes.
+ */
+const COOKIE_NAME = "kanban-auth";
+
+function extractTokenFromCookie(req: IncomingMessage): string | null {
+	const cookie = req.headers.cookie;
+	if (typeof cookie !== "string") {
+		return null;
+	}
+	const match = cookie.match(new RegExp(`(?:^|;\\s*)${COOKIE_NAME}=([^;]+)`));
+	return match?.[1] ?? null;
+}
+
 function constantTimeEqual(a: string, b: string): boolean {
 	const bufA = Buffer.from(a, "utf8");
 	const bufB = Buffer.from(b, "utf8");
@@ -181,8 +203,11 @@ export function createAuthMiddleware(deps: AuthMiddlewareDependencies): AuthMidd
 			return true;
 		}
 
-		// WS auth is header-only. No query param fallback. Ever.
-		const token = extractBearerToken(req);
+		// Primary: Bearer token from Authorization header (CLI/programmatic clients).
+		// Fallback: kanban-auth session cookie (Electron desktop — see
+		// extractTokenFromCookie docstring for why this is needed).
+		// No query-param fallback. Ever.
+		const token = extractBearerToken(req) ?? extractTokenFromCookie(req);
 		if (!token || !constantTimeEqual(token, authToken)) {
 			return false;
 		}

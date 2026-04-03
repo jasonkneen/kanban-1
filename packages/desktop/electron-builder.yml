@@ -60,8 +60,7 @@ extraResources:
 asar: true
 
 # ── asarUnpack ──
-# Only files that MUST live outside the ASAR archive are listed here.
-# Keeping this list minimal reduces app size and startup I/O.
+# Files that MUST live outside the ASAR archive.
 #
 # WHY each entry exists:
 #
@@ -73,33 +72,23 @@ asar: true
 #     The fork() target for the runtime child process. child_process.fork()
 #     requires a real file path, not an ASAR virtual path.
 #
-#   **/node_modules/node-pty/**
-#     Native C++ addon (pty.node / conpty.node). Loaded via dlopen() which
-#     cannot read from inside an ASAR archive. Present both as a direct
-#     dependency and nested inside the kanban package.
+#   node_modules/**
+#     The runtime child process runs with ELECTRON_RUN_AS_NODE=1 and
+#     imports `kanban/runtime-start` from the unpacked filesystem.
+#     Module resolution from unpacked paths does NOT fall back to the
+#     ASAR archive, so ALL node_modules must be unpacked — including
+#     hoisted transitive dependencies (e.g. proper-lockfile, graceful-fs)
+#     that the kanban runtime needs at startup.
+#     Selectively listing packages is fragile: npm may hoist different
+#     subsets depending on install order/versions, causing silent
+#     breakage in packaged builds.
 #
-#   **/node_modules/better-sqlite3/**
-#     Native C++ addon (better_sqlite3.node) used by the kanban runtime for
-#     persistent storage. Loaded via dlopen() — must be on real filesystem.
-#
-#   **/node_modules/@anthropic-ai/claude-agent-sdk/**
-#     Ships vendored native .node binaries (audio-capture) for each platform.
-#     These are loaded via dlopen() and must be unpacked.
-#
-#   **/node_modules/@img/**
-#     Platform-specific native image processing addons (sharp). The @img
-#     scope contains per-platform packages (e.g. @img/sharp-darwin-arm64)
-#     with .node binaries that require dlopen().
-#
-# NOTE: tree-kill is intentionally NOT listed here — it is pure JavaScript
-# and works fine from inside the ASAR archive.
+# NOTE: Native addons (node-pty, better-sqlite3, @img/*, etc.) are
+# included by this pattern as well — dlopen() requires real files.
 asarUnpack:
   - "package.json"
   - "**/runtime-child-entry.js"
-  - "**/node_modules/node-pty/**"
-  - "**/node_modules/better-sqlite3/**"
-  - "**/node_modules/@anthropic-ai/claude-agent-sdk/**"
-  - "**/node_modules/@img/**"
+  - "node_modules/**"
 
 # ──────────────────────────────────────────
 # Auto-update: publish to GitHub Releases

@@ -500,21 +500,18 @@ function createRuntimeChildManager(): RuntimeChildManager {
 		restartDecayMs: 300_000,
 	});
 
-	// When the runtime crashes and auto-restarts, re-wire the auth interceptor
-	// and reload the window.
+	// When the runtime reports ready (initial start or auto-restart after crash),
+	// update local state and publish the descriptor for CLI helpers.
+	//
+	// NOTE: We do NOT install auth interceptors or call loadURL here — that is
+	// ConnectionManager's responsibility (switchToLocal handles both).
+	// Doing it here too causes double-registration of onBeforeSendHeaders and
+	// double loadURL, which race and break auth.
 	manager.on("ready", (url: string) => {
 		runtimeUrl = url;
 		authToken = connectionManager?.getLocalAuthToken() ?? authToken;
 		// Publish descriptor so CLI helpers can discover this runtime.
 		publishRuntimeDescriptor(url, authToken!);
-		if (mainWindow && !mainWindow.isDestroyed()) {
-			installAuthHeaderInterceptor(
-				mainWindow.webContents.session,
-				authToken!,
-				url,
-			);
-			mainWindow.loadURL(url);
-		}
 	});
 
 	manager.on("error", (message: string) => {
@@ -770,11 +767,21 @@ if (gotTheLock) {
 		// Create the RuntimeChildManager (not started yet).
 		runtimeManager = createRuntimeChildManager();
 
+		// Compute the absolute path to the bundled CLI shim.
+		let kanbanCliCommand: string;
+		if (app.isPackaged) {
+			const shimName = process.platform === "win32" ? "kanban.cmd" : "kanban";
+			kanbanCliCommand = path.join(process.resourcesPath, "bin", shimName);
+		} else {
+			kanbanCliCommand = path.join(import.meta.dirname, "..", "build", "bin", "kanban-dev");
+		}
+
 		// Instantiate the connection manager.
 		connectionManager = new ConnectionManager({
 			window: mainWindow,
 			childManager: runtimeManager,
 			store: connectionStore,
+			kanbanCliCommand,
 			onConnectionChanged: () => {
 				rebuildConnectionMenu();
 			},
@@ -823,6 +830,18 @@ if (gotTheLock) {
 						authToken!,
 						runtimeUrl,
 					);
+					// Set auth cookie for WebSocket upgrade requests (Electron's
+					// onBeforeSendHeaders doesn't intercept WS upgrades).
+					const origin = new URL(runtimeUrl).origin;
+					mainWindow.webContents.session.cookies.set({
+						url: origin,
+						name: "kanban-auth",
+						value: authToken!,
+						path: "/",
+						httpOnly: true,
+						secure: false,
+						sameSite: "strict",
+					}).catch(() => {});
 					mainWindow.loadURL(runtimeUrl);
 				}
 			} else if (mainWindow && !mainWindow.isVisible()) {

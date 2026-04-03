@@ -39,6 +39,12 @@ export interface ConnectionManagerOptions {
 	store: ConnectionStore;
 	onConnectionChanged?: () => void;
 	/**
+	 * Absolute path to the bundled Kanban CLI shim.
+	 * Passed to the child process so the home-agent prompt references
+	 * the bundled shim instead of relying on a global install.
+	 */
+	kanbanCliCommand?: string;
+	/**
 	 * Called when the local runtime becomes ready with its URL and auth token.
 	 * Used by main.ts to publish the runtime descriptor for CLI discovery.
 	 */
@@ -78,11 +84,14 @@ export class ConnectionManager {
 	private readonly onLocalRuntimeReady?: (url: string, authToken: string) => void;
 	private readonly onLocalRuntimeStopped?: () => void;
 
+	private readonly kanbanCliCommand?: string;
+
 	constructor(options: ConnectionManagerOptions) {
 		this.window = options.window;
 		this.childManager = options.childManager;
 		this.store = options.store;
 		this.onConnectionChanged = options.onConnectionChanged;
+		this.kanbanCliCommand = options.kanbanCliCommand;
 		this.onLocalRuntimeReady = options.onLocalRuntimeReady;
 		this.onLocalRuntimeStopped = options.onLocalRuntimeStopped;
 		this.createWslLauncher = options.createWslLauncher;
@@ -195,6 +204,7 @@ export class ConnectionManager {
 					host: "127.0.0.1",
 					port: "auto",
 					authToken: this.localAuthToken,
+					kanbanCliCommand: this.kanbanCliCommand,
 				});
 				this.childRunning = true;
 				this.onLocalRuntimeReady?.(this.localUrl, this.localAuthToken);
@@ -203,7 +213,7 @@ export class ConnectionManager {
 				this.localUrl = "about:blank";
 			}
 		}
-		this.installAuthInterceptor(this.localUrl, this.localAuthToken);
+		await this.installAuthInterceptor(this.localUrl, this.localAuthToken);
 		await this.window.loadURL(this.localUrl);
 	}
 
@@ -233,7 +243,7 @@ export class ConnectionManager {
 			this.childRunning = false;
 		}
 		const token = connection.authToken ?? "";
-		this.installAuthInterceptor(connection.serverUrl, token);
+		await this.installAuthInterceptor(connection.serverUrl, token);
 		await this.window.loadURL(connection.serverUrl);
 	}
 
@@ -261,7 +271,7 @@ export class ConnectionManager {
 			console.error("[ConnectionManager] Failed to start WSL runtime:", err);
 			this.wslUrl = "about:blank";
 		}
-		this.installAuthInterceptor(this.wslUrl, this.wslAuthToken);
+		await this.installAuthInterceptor(this.wslUrl, this.wslAuthToken);
 		await this.window.loadURL(this.wslUrl);
 	}
 
@@ -274,7 +284,7 @@ export class ConnectionManager {
 
 	// -- Private auth ---------------------------------------------------------
 
-	private installAuthInterceptor(serverUrl: string, token: string): void {
+	private async installAuthInterceptor(serverUrl: string, token: string): Promise<void> {
 		this.removeAuthInterceptor();
 		if (!token || !serverUrl || serverUrl === "about:blank") return;
 
@@ -288,6 +298,7 @@ export class ConnectionManager {
 		const session: Session = this.window.webContents.session;
 		const filter = { urls: [`${origin}/*`] };
 
+		// 1. Header interceptor — covers all HTTP requests from the renderer.
 		session.webRequest.onBeforeSendHeaders(
 			filter,
 			(
@@ -300,8 +311,25 @@ export class ConnectionManager {
 			},
 		);
 
+		// 2. Session cookie — covers WebSocket upgrade requests which bypass
+		//    onBeforeSendHeaders in Electron (Chromium sends WS upgrades
+		//    through the network stack without the webRequest intercept).
+		//    The runtime auth middleware accepts this cookie as a fallback.
+		const url = new URL(serverUrl);
+		await session.cookies.set({
+			url: origin,
+			name: "kanban-auth",
+			value: token,
+			path: "/",
+			httpOnly: true,
+			secure: url.protocol === "https:",
+			sameSite: "strict",
+		});
+
 		this.disposeAuthInterceptor = () => {
 			session.webRequest.onBeforeSendHeaders(null);
+			// Best-effort cookie removal.
+			session.cookies.remove(origin, "kanban-auth").catch(() => {});
 		};
 	}
 
