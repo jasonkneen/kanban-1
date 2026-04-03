@@ -7,7 +7,7 @@
  * - RuntimeChildManager lifecycle (start, heartbeat, shutdown)
  * - Ephemeral auth token generation + header injection
  * - Custom application menu
- * - macOS App Nap prevention, Dock reactivation
+ * - macOS App Nap / Linux suspend prevention, Dock reactivation
  * - powerMonitor resume health check
  * - Window state persistence to userData/window-state.json
  * - Interrupted tasks notification on restart
@@ -601,11 +601,17 @@ async function restartRuntimeChild(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// App Nap prevention (macOS)
+// App Nap / suspend prevention (macOS + Linux)
 // ---------------------------------------------------------------------------
+// On macOS, "prevent-app-suspension" stops App Nap from throttling the
+// runtime child when the window is hidden.
+// On Linux, the same Electron API prevents the desktop environment from
+// suspending the process (e.g. via systemd-logind idle handling).
+// On Windows this is unnecessary — Windows does not suspend GUI processes
+// that hold open child processes.
 
 function startAppNapPrevention(): void {
-	if (process.platform !== "darwin") return;
+	if (process.platform !== "darwin" && process.platform !== "linux") return;
 	if (powerSaveBlockerId !== -1) return;
 	// "prevent-app-suspension" keeps the app active even when hidden,
 	// ensuring the runtime child process keeps running.

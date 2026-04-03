@@ -14,7 +14,7 @@
 		"build:mac:x64": "npm run rebuild:pty && npm run build:ts && electron-builder --mac dmg --x64 --config electron-builder.yml",
 		"build:mac:universal": "npm run rebuild:pty && npm run build:ts && electron-builder --mac dmg --universal --config electron-builder.yml",
 		"build:win": "npm run build:ts && electron-builder --win --x64 --config electron-builder.yml",
-		"build:linux": "npm run build:ts && electron-builder --linux --config electron-builder.yml",
+		"build:linux": "npm run rebuild:pty && npm run build:ts && electron-builder --linux --config electron-builder.yml",
 		"build": "npm run rebuild:pty && npm run build:ts && electron-builder --config electron-builder.yml",
 		"dev": "tsc -p tsconfig.build.json && electron dist/main.js",
 		"typecheck": "tsc -p tsconfig.json --noEmit",

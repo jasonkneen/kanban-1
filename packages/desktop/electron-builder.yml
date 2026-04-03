@@ -49,11 +49,6 @@ protocols:
 # node-pty is a native addon that must be rebuilt for Electron's Node version.
 # @electron/rebuild handles this via the postinstall hook (electron-builder install-app-deps).
 
-# The child process entry point must be outside the asar archive so that
-# child_process.fork() can access it directly. node-pty native bindings
-# also need to be unpacked for the same reason. tree-kill is unpacked so
-# that spawned helper processes can reliably kill grandchild process trees
-# on Windows (where native pid-tree walking is needed).
 # Bundle the CLI shim scripts in Resources/bin/ so the desktop app can
 # invoke the Kanban CLI without depending on a global npm install.
 extraResources:
@@ -63,10 +58,48 @@ extraResources:
       - "**/*"
 
 asar: true
+
+# ── asarUnpack ──
+# Only files that MUST live outside the ASAR archive are listed here.
+# Keeping this list minimal reduces app size and startup I/O.
+#
+# WHY each entry exists:
+#
+#   package.json
+#     Node.js reads the nearest package.json to detect "type": "module"
+#     when fork()ing the runtime child. Must be on the real filesystem.
+#
+#   **/runtime-child-entry.js
+#     The fork() target for the runtime child process. child_process.fork()
+#     requires a real file path, not an ASAR virtual path.
+#
+#   **/node_modules/node-pty/**
+#     Native C++ addon (pty.node / conpty.node). Loaded via dlopen() which
+#     cannot read from inside an ASAR archive. Present both as a direct
+#     dependency and nested inside the kanban package.
+#
+#   **/node_modules/better-sqlite3/**
+#     Native C++ addon (better_sqlite3.node) used by the kanban runtime for
+#     persistent storage. Loaded via dlopen() — must be on real filesystem.
+#
+#   **/node_modules/@anthropic-ai/claude-agent-sdk/**
+#     Ships vendored native .node binaries (audio-capture) for each platform.
+#     These are loaded via dlopen() and must be unpacked.
+#
+#   **/node_modules/@img/**
+#     Platform-specific native image processing addons (sharp). The @img
+#     scope contains per-platform packages (e.g. @img/sharp-darwin-arm64)
+#     with .node binaries that require dlopen().
+#
+# NOTE: tree-kill is intentionally NOT listed here — it is pure JavaScript
+# and works fine from inside the ASAR archive.
 asarUnpack:
   - "package.json"
   - "**/runtime-child-entry.js"
-  - "**/node_modules/**"
+  - "**/node_modules/node-pty/**"
+  - "**/node_modules/better-sqlite3/**"
+  - "**/node_modules/@anthropic-ai/claude-agent-sdk/**"
+  - "**/node_modules/@img/**"
 
 # ──────────────────────────────────────────
 # Auto-update: publish to GitHub Releases
@@ -184,10 +217,22 @@ nsis:
 # ──────────────────────────────────────────
 # Linux configuration
 # ──────────────────────────────────────────
+# AppImage is used because it's self-contained (no system dependencies),
+# runs on virtually all desktop distros, and supports auto-update via
+# electron-updater without requiring a package manager.
+#
+# arm64 is included alongside x64 to support the growing ARM Linux desktop
+# and CI ecosystem (Raspberry Pi, Ampere cloud VMs, Graviton dev boxes).
+#
+# NOTE: node-pty requires a platform-matching native rebuild. The build:linux
+# script runs rebuild:pty before packaging to ensure the correct binary is
+# bundled. Cross-compiling for arm64 from x64 requires either an arm64
+# sysroot or building on native arm64 hardware / CI runners.
 linux:
   target:
     - target: AppImage
       arch:
         - x64
+        - arm64
   category: Development
   artifactName: "${productName}-${version}-${arch}.${ext}"
