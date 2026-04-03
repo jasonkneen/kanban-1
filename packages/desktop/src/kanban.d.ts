@@ -34,4 +34,27 @@ declare module "kanban" {
 			}>;
 		};
 	}>;
+
+	export interface RuntimeDescriptor {
+		url: string;
+		authToken: string;
+		pid: number;
+		updatedAt: string;
+		source?: "desktop" | "terminal";
+		desktopSessionId?: string;
+	}
+
+	export interface DescriptorTrustResult {
+		trusted: boolean;
+		reason:
+			| "no-descriptor"
+			| "current-session"
+			| "terminal-owned"
+			| "prior-desktop-session"
+			| "pid-dead";
+	}
+
+	export function writeRuntimeDescriptor(descriptor: RuntimeDescriptor): Promise<void>;
+	export function clearRuntimeDescriptor(): Promise<void>;
+	export function evaluateDescriptorTrust(currentSessionId: string): Promise<DescriptorTrustResult>;
 }

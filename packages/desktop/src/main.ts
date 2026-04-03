@@ -52,7 +52,7 @@ import {
 	clearRuntimeDescriptor,
 	evaluateDescriptorTrust,
 	writeRuntimeDescriptor,
-} from "../../../src/core/runtime-descriptor.js";
+} from "kanban";
 
 // ---------------------------------------------------------------------------
 // Constants

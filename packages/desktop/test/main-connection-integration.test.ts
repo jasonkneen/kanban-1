@@ -50,7 +50,13 @@ function createMockWindow() {
 	return {
 		loadURL: vi.fn(async () => {}),
 		webContents: {
-			session: { webRequest: { onBeforeSendHeaders: vi.fn() } },
+			session: {
+				webRequest: { onBeforeSendHeaders: vi.fn() },
+				cookies: {
+					set: vi.fn().mockResolvedValue(undefined),
+					remove: vi.fn().mockResolvedValue(undefined),
+				},
+			},
 		},
 	};
 }
