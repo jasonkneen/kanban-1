@@ -33,13 +33,32 @@ asarUnpack:
   - "**/node_modules/node-pty/**"
 
 # ──────────────────────────────────────────
+# Auto-update: publish to GitHub Releases
+# ──────────────────────────────────────────
+# electron-updater reads this at build time to embed the update feed URL.
+# At runtime, autoUpdater.checkForUpdates() fetches the latest release
+# from the GitHub repo and compares versions.
+#
+# Code signing is configured separately (Tasks 3.2, 3.3).
+publish:
+  provider: github
+  owner: cline
+  repo: kanban
+  releaseType: release
+
+# ──────────────────────────────────────────
 # macOS configuration
 # ──────────────────────────────────────────
 mac:
   category: public.app-category.developer-tools
   icon: build/icon.icns
+  # dmg for user-facing download, zip for electron-updater's differential updates.
   target:
     - target: dmg
+      arch:
+        - x64
+        - arm64
+    - target: zip
       arch:
         - x64
         - arm64
@@ -63,7 +82,7 @@ dmg:
       path: /Applications
 
 # ──────────────────────────────────────────
-# Windows configuration (placeholder — Task 1.6)
+# Windows configuration
 # ──────────────────────────────────────────
 win:
   target:
@@ -76,6 +95,7 @@ nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
   perMachine: false
+  artifactName: "${productName}-Setup-${version}-${arch}.${ext}"
 
 # ──────────────────────────────────────────
 # Linux configuration
@@ -86,3 +106,4 @@ linux:
       arch:
         - x64
   category: Development
+  artifactName: "${productName}-${version}-${arch}.${ext}"

@@ -32,6 +32,7 @@
 		"vitest": "^4.1.0"
 	},
 	"dependencies": {
+		"electron-updater": "^6.3.9",
 		"kanban": "file:../../"
 	}
 }
