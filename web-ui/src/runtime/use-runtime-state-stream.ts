@@ -47,7 +47,6 @@ function getRuntimeStreamUrl(workspaceId: string | null): string {
 }
 
 export interface UseRuntimeStateStreamResult {
-	isLocal: boolean;
 	runtimeVersion: string;
 	currentProjectId: string | null;
 	projects: RuntimeProjectSummary[];
@@ -65,7 +64,6 @@ export interface UseRuntimeStateStreamResult {
 }
 
 interface RuntimeStateStreamStore {
-	isLocal: boolean;
 	runtimeVersion: string;
 	currentProjectId: string | null;
 	projects: RuntimeProjectSummary[];
@@ -104,7 +102,6 @@ type RuntimeStateStreamAction =
 
 function createInitialRuntimeStateStreamStore(requestedWorkspaceId: string | null): RuntimeStateStreamStore {
 	return {
-		isLocal: true,
 		runtimeVersion: "",
 		currentProjectId: requestedWorkspaceId,
 		projects: [],
@@ -194,7 +191,6 @@ function runtimeStateStreamReducer(
 		const snapshotIsLocal = (action.payload as Record<string, unknown>).isLocal;
 		const nextIsLocal = typeof snapshotIsLocal === "boolean" ? snapshotIsLocal : true;
 		return {
-			isLocal: action.payload.isLocal,
 			runtimeVersion: action.payload.runtimeVersion,
 			currentProjectId: action.payload.currentProjectId,
 			projects: action.payload.projects,
@@ -515,7 +511,6 @@ export function useRuntimeStateStream(requestedWorkspaceId: string | null): UseR
 	}, [requestedWorkspaceId]);
 
 	return {
-		isLocal: state.isLocal,
 		runtimeVersion: state.runtimeVersion,
 		currentProjectId: state.currentProjectId,
 		projects: state.projects,
